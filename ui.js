@@ -278,16 +278,77 @@ window.ElectronCloud.UI.onSpeedChange = function() {
     // 速度变化直接由采样模块读取
 };
 
+// 轨道预估最远距离的先验知识表（基于量子数n）
+// 公式约为 15 * n^2，这里直接查表避免实时计算
+window.ElectronCloud.UI.orbitalDistanceTable = {
+    // n=1 轨道，预估最远距离约 15
+    '1s': 15,
+    // n=2 轨道，预估最远距离约 60
+    '2s': 60, '2px': 60, '2py': 60, '2pz': 60,
+    // n=3 轨道，预估最远距离约 135
+    '3s': 135, '3px': 135, '3py': 135, '3pz': 135,
+    '3d_xy': 135, '3d_xz': 135, '3d_yz': 135, '3d_x2-y2': 135, '3d_z2': 135,
+    // n=4 轨道，预估最远距离约 240
+    '4s': 240, '4px': 240, '4py': 240, '4pz': 240,
+    '4d_xy': 240, '4d_xz': 240, '4d_yz': 240, '4d_x2-y2': 240, '4d_z2': 240,
+    '4f_xyz': 240, '4f_xz2': 240, '4f_yz2': 240, '4f_z3': 240,
+    '4f_z(x2-y2)': 240, '4f_x(x2-3y2)': 240, '4f_y(3x2-y2)': 240
+};
+
+// 获取点大小（根据轨道尺寸等比例缩放）
+// 以"最远距离 60"为基准（对应 n=2 轨道）
 window.ElectronCloud.UI.getPointSize = function() {
     const ui = window.ElectronCloud.ui;
+    const state = window.ElectronCloud.state;
+    const distanceTable = window.ElectronCloud.UI.orbitalDistanceTable;
     
     if (!ui.sizeSelect) return 0.06;
     
+    // 基准点大小（对应基准距离60）
     const v = ui.sizeSelect.value;
-    if (v === 'small') return 0.03;
-    if (v === 'medium') return 0.06;
-    if (v === 'large') return 0.12;
-    return 0.06;
+    let baseSize;
+    if (v === 'small') baseSize = 0.03;
+    else if (v === 'medium') baseSize = 0.06;
+    else if (v === 'large') baseSize = 0.12;
+    else baseSize = 0.06;
+    
+    // 基准最远距离（对应 n=2 轨道）
+    const baseDistance = 60;
+    
+    // 获取当前选中轨道中最大的预估距离
+    let maxDistance = baseDistance; // 默认值
+    
+    // 优先从 state.currentOrbitals 获取（适用于所有模式）
+    if (state.currentOrbitals && state.currentOrbitals.length > 0) {
+        for (const orbitalKey of state.currentOrbitals) {
+            const dist = distanceTable[orbitalKey];
+            if (dist && dist > maxDistance) {
+                maxDistance = dist;
+            }
+        }
+    } 
+    // 备用：从 UI 选择框获取
+    else if (ui.orbitalSelect) {
+        const selectedOptions = ui.orbitalSelect.selectedOptions;
+        if (selectedOptions && selectedOptions.length > 0) {
+            for (const option of selectedOptions) {
+                const dist = distanceTable[option.value];
+                if (dist && dist > maxDistance) {
+                    maxDistance = dist;
+                }
+            }
+        } else if (ui.orbitalSelect.value) {
+            // 单选模式
+            const dist = distanceTable[ui.orbitalSelect.value];
+            if (dist) {
+                maxDistance = dist;
+            }
+        }
+    }
+    
+    // 点大小与轨道尺寸等比例缩放
+    const scaleFactor = maxDistance / baseDistance;
+    return baseSize * scaleFactor;
 };
 
 window.ElectronCloud.UI.onSizeChange = function() {
