@@ -197,11 +197,11 @@ window.ElectronCloud.Scene.onSamplingCompleted = function() {
     // 如果在比照模式下，更新标签提示
     const compareToggle = window.ElectronCloud.ui.compareToggle;
     if (compareToggle && compareToggle.checked) {
-        const label = document.querySelector('label[for="orbital-select"]');
+        // 渲染完成后更新标签提示和选择计数
+        window.ElectronCloud.UI.updateSelectionCount();
+        
+        // 添加渲染完成状态的CSS类，用于hover效果
         const controlPanel = document.getElementById('control-panel');
-        if (label) {
-            label.innerHTML = `选择轨道<br><small style="color: #90EE90;">渲染完成！点击轨道可开关显示</small>`;
-        }
         if (controlPanel) {
             controlPanel.classList.add('rendering-completed');
         }

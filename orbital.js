@@ -130,11 +130,12 @@ window.ElectronCloud.Orbital.clearDrawing = function() {
     // 重置状态
     window.ElectronCloud.resetState();
     
-    // 重置轨道选项UI状态
+    // 重置轨道选项UI状态 - 清除所有可见性相关的类和样式
     const options = ui.orbitalSelect.querySelectorAll('option');
     options.forEach(option => {
-        option.style.opacity = '1';
-        option.style.textDecoration = 'none';
+        option.classList.remove('orbital-hidden', 'orbital-visible');
+        option.style.opacity = '';
+        option.style.textDecoration = '';
         option.title = '';
     });
     
@@ -144,12 +145,6 @@ window.ElectronCloud.Orbital.clearDrawing = function() {
     // 如果当前在比照模式或多选模式，更新计数显示
     if ((ui.multiselectToggle && ui.multiselectToggle.checked) || (ui.compareToggle && ui.compareToggle.checked)) {
         window.ElectronCloud.UI.updateSelectionCount();
-        if (ui.compareToggle.checked) {
-            const label = document.querySelector('label[for="orbital-select"]');
-            if (label) {
-                label.innerHTML = `选择轨道<br><small>点击多选（最多3个）</small>`;
-            }
-        }
     }
     
     // 移除渲染完成状态的CSS类
@@ -228,19 +223,30 @@ window.ElectronCloud.Orbital.toggleOrbitalVisibility = function(orbitalKey) {
     
     if (!state.renderingCompleted || !ui.compareToggle.checked) return;
     
+    // 只有已渲染的轨道才能被切换可见性
+    if (!state.currentOrbitals.includes(orbitalKey)) {
+        console.log(`轨道 ${orbitalKey} 未被渲染，无法切换可见性`);
+        return;
+    }
+    
+    // 确保 orbitalVisibility 中有这个轨道的记录
+    if (state.orbitalVisibility[orbitalKey] === undefined) {
+        state.orbitalVisibility[orbitalKey] = true;
+    }
+    
     state.orbitalVisibility[orbitalKey] = !state.orbitalVisibility[orbitalKey];
     window.ElectronCloud.Orbital.updateOrbitalVisibility();
     
-    // 更新UI显示
+    // 更新UI显示 - 使用删除线和透明度来表示隐藏状态，但保持选中状态不变
     const option = ui.orbitalSelect.querySelector(`option[value="${orbitalKey}"]`);
     if (option) {
         if (state.orbitalVisibility[orbitalKey]) {
-            option.style.opacity = '1';
-            option.style.textDecoration = 'none';
+            option.classList.remove('orbital-hidden');
+            option.classList.add('orbital-visible');
             option.title = '点击隐藏此轨道';
         } else {
-            option.style.opacity = '0.5';
-            option.style.textDecoration = 'line-through';
+            option.classList.add('orbital-hidden');
+            option.classList.remove('orbital-visible');
             option.title = '点击显示此轨道';
         }
     }

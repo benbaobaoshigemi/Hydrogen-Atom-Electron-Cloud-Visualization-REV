@@ -359,7 +359,11 @@ window.ElectronCloud.UI.onMultiselectToggle = function() {
     if (isMultiselect) {
         if (controlPanel) controlPanel.classList.add('multiselect-active');
         if (multiselectControls) multiselectControls.style.display = 'flex';
-        if (ui.orbitalSelect) ui.orbitalSelect.style.pointerEvents = 'auto';
+        if (ui.orbitalSelect) {
+            ui.orbitalSelect.style.pointerEvents = 'auto';
+            ui.orbitalSelect.multiple = true;
+            ui.orbitalSelect.size = 10;
+        }
         
         // 多选模式下只禁用3D角向形状开关，保持坐标轴开关可用
         window.ElectronCloud.UI.disableAngular3DToggle();
@@ -373,7 +377,11 @@ window.ElectronCloud.UI.onMultiselectToggle = function() {
         if (label) label.textContent = '选择轨道';
         if (controlPanel) controlPanel.classList.remove('multiselect-active');
         if (multiselectControls) multiselectControls.style.display = 'none';
-        if (ui.orbitalSelect) ui.orbitalSelect.style.pointerEvents = 'auto';
+        if (ui.orbitalSelect) {
+            ui.orbitalSelect.style.pointerEvents = 'auto';
+            ui.orbitalSelect.multiple = false;
+            ui.orbitalSelect.removeAttribute('size');
+        }
         
         // 清除强制样式类
         if (ui.orbitalSelect) {
@@ -427,23 +435,17 @@ window.ElectronCloud.UI.onCompareToggle = function() {
             controlPanel.classList.add('compare-active');
         }
         if (multiselectControls) multiselectControls.style.display = 'flex';
-        if (ui.orbitalSelect) ui.orbitalSelect.style.pointerEvents = 'auto';
+        if (ui.orbitalSelect) {
+            ui.orbitalSelect.style.pointerEvents = 'auto';
+            ui.orbitalSelect.multiple = true; // 显式开启多选模式
+            ui.orbitalSelect.size = 10; // 确保展开显示
+        }
         
         window.ElectronCloud.UI.updateSelectionCount();
         window.ElectronCloud.UI.refreshSelectStyles();
         
         // 更新清空按钮状态
         window.ElectronCloud.UI.updateClearAllSelectionsState();
-        
-        // 更新标签提示
-        const state = window.ElectronCloud.state;
-        if (label) {
-            if (state.renderingCompleted) {
-                label.innerHTML = `选择轨道<br><small>渲染完成后点击可开关显示</small>`;
-            } else {
-                label.innerHTML = `选择轨道<br><small>最多选择3个</small>`;
-            }
-        }
     } else {
         // 重新启用渲染相位
         if (phaseToggle) {
@@ -459,7 +461,11 @@ window.ElectronCloud.UI.onCompareToggle = function() {
             controlPanel.classList.remove('compare-active');
         }
         if (multiselectControls) multiselectControls.style.display = 'none';
-        if (ui.orbitalSelect) ui.orbitalSelect.style.pointerEvents = 'auto';
+        if (ui.orbitalSelect) {
+            ui.orbitalSelect.style.pointerEvents = 'auto';
+            ui.orbitalSelect.multiple = false; // 关闭多选模式
+            ui.orbitalSelect.removeAttribute('size'); // 恢复默认下拉样式
+        }
         
         // 清除强制样式类
         if (ui.orbitalSelect) {
@@ -553,6 +559,7 @@ window.ElectronCloud.UI.setupMultiselectMode = function() {
 // 更新选择计数
 window.ElectronCloud.UI.updateSelectionCount = function() {
     const ui = window.ElectronCloud.ui;
+    const state = window.ElectronCloud.state;
     
     if (!ui.orbitalSelect) return;
     
@@ -562,7 +569,12 @@ window.ElectronCloud.UI.updateSelectionCount = function() {
     if (ui.multiselectToggle && ui.multiselectToggle.checked) {
         if (label) label.innerHTML = `选择轨道<br>已选: ${selectedCount}`;
     } else if (ui.compareToggle && ui.compareToggle.checked) {
-        if (label) label.innerHTML = `选择轨道<br>已选: ${selectedCount}/3`;
+        // 渲染完成后显示「开关显示」，否则显示「选择轨道」
+        if (state.renderingCompleted) {
+            if (label) label.innerHTML = `开关显示<br>已选: ${selectedCount}/3`;
+        } else {
+            if (label) label.innerHTML = `选择轨道<br>已选: ${selectedCount}/3`;
+        }
     }
     
     // 强制刷新选择框样式
@@ -572,6 +584,7 @@ window.ElectronCloud.UI.updateSelectionCount = function() {
 // 刷新选择框样式
 window.ElectronCloud.UI.refreshSelectStyles = function() {
     const ui = window.ElectronCloud.ui;
+    const state = window.ElectronCloud.state;
     const constants = window.ElectronCloud.constants;
     
     if (!ui.orbitalSelect) return;
@@ -579,8 +592,14 @@ window.ElectronCloud.UI.refreshSelectStyles = function() {
     // 强制重新应用样式
     const options = ui.orbitalSelect.querySelectorAll('option');
     options.forEach(option => {
-        // 清除所有颜色类
+        // 清除颜色类，但保留隐藏/可见类（如果渲染完成）
         option.classList.remove('force-selected', 'compare-color-0', 'compare-color-1', 'compare-color-2');
+        
+        // 如果渲染未完成，清除隐藏/可见类
+        if (!state.renderingCompleted) {
+            option.classList.remove('orbital-hidden', 'orbital-visible');
+            option.title = '';
+        }
         
         if (option.selected) {
             option.classList.add('force-selected');
@@ -694,11 +713,16 @@ window.ElectronCloud.UI.updateClearAllSelectionsState = function() {
         ui.clearAllSelectionsBtn.disabled = true;
         ui.clearAllSelectionsBtn.style.opacity = '0.5';
         ui.clearAllSelectionsBtn.style.cursor = 'not-allowed';
+        ui.clearAllSelectionsBtn.style.backgroundColor = '';
+        ui.clearAllSelectionsBtn.style.color = '';
         ui.clearAllSelectionsBtn.title = '对比模式下启动计算后需要点击重置才能清空选择';
     } else {
         ui.clearAllSelectionsBtn.disabled = false;
         ui.clearAllSelectionsBtn.style.opacity = '1';
         ui.clearAllSelectionsBtn.style.cursor = 'pointer';
+        // 可用时标红
+        ui.clearAllSelectionsBtn.style.backgroundColor = 'rgba(255, 80, 80, 0.8)';
+        ui.clearAllSelectionsBtn.style.color = '#fff';
         ui.clearAllSelectionsBtn.title = '';
     }
 };

@@ -314,36 +314,39 @@ select:focus, input:focus, button:focus {
     box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.1);
 }
 
-select[multiple]{
-    width: 160px;
+.control-group select[multiple]{
+    width: 100%; /* 占满容器宽度 */
     background-color: rgba(20, 20, 20, 0.95) !important;
     padding: 6px;
-    height: 120px; /* 固定高度而不是size */
+    height: 200px; /* 增加高度以容纳更多选项 */
     overflow-y: auto;
+    text-align: left; /* 列表模式下左对齐 */
+    appearance: listbox; /* 恢复列表外观 */
+    -webkit-appearance: listbox;
 }
 
 /* 自定义滚动条样式 */
-select[multiple]::-webkit-scrollbar {
+.control-group select[multiple]::-webkit-scrollbar {
     width: 8px;
 }
 
-select[multiple]::-webkit-scrollbar-track {
+.control-group select[multiple]::-webkit-scrollbar-track {
     background: rgba(10, 10, 10, 0.8);
     border-radius: 4px;
 }
 
-select[multiple]::-webkit-scrollbar-thumb {
+.control-group select[multiple]::-webkit-scrollbar-thumb {
     background: rgba(100, 100, 100, 0.8);
     border-radius: 4px;
     border: 1px solid rgba(60, 60, 60, 0.5);
 }
 
-select[multiple]::-webkit-scrollbar-thumb:hover {
+.control-group select[multiple]::-webkit-scrollbar-thumb:hover {
     background: rgba(120, 120, 120, 0.9);
 }
 
 /* Firefox滚动条样式 */
-select[multiple] {
+.control-group select[multiple] {
     scrollbar-width: thin;
     scrollbar-color: rgba(100, 100, 100, 0.8) rgba(10, 10, 10, 0.8);
 }
@@ -522,7 +525,7 @@ canvas {
 }
 
 /* 选中项样式 - 默认模式 */
-select[multiple] option:checked {
+.control-group select[multiple] option:checked {
     background: linear-gradient(90deg, rgba(200, 200, 200, 0.9) 0%, rgba(160, 160, 160, 0.8) 100%) !important;
     color: #000000 !important;
     font-weight: bold;
@@ -534,7 +537,7 @@ select[multiple] option:checked {
 }
 
 /* 为选中项添加选中标记 */
-select[multiple] option:checked::before {
+.control-group select[multiple] option:checked::before {
     content: "✓ ";
     color: #000000;
     font-weight: bold;
@@ -542,7 +545,7 @@ select[multiple] option:checked::before {
 }
 
 /* 多选模式下的选中项样式 - 持续高亮圆角矩形 */
-.multiselect-active select[multiple] option:checked {
+.multiselect-active .control-group select[multiple] option:checked {
     background: linear-gradient(90deg, rgba(220, 220, 220, 0.95) 0%, rgba(180, 180, 180, 0.9) 100%) !important;
     color: #000000 !important;
     border-left: 4px solid #ffffff !important;
@@ -555,7 +558,7 @@ select[multiple] option:checked::before {
 }
 
 /* 多选模式下选中项的before伪元素 */
-.multiselect-active select[multiple] option:checked::before {
+.multiselect-active .control-group select[multiple] option:checked::before {
     content: "✓ " !important;
     color: #000000 !important;
     font-weight: bold !important;
@@ -570,7 +573,7 @@ select[multiple] option:checked::before {
 }
 
 /* 多选模式下未选中项的hover效果 */
-.multiselect-active select[multiple] option:not(:checked):hover {
+.multiselect-active .control-group select[multiple] option:not(:checked):hover {
     background-color: rgba(100, 100, 100, 0.7) !important;
     color: #ffffff !important;
     border-radius: 6px !important;
@@ -578,7 +581,7 @@ select[multiple] option:checked::before {
 }
 
 /* 多选模式下选中项的hover效果 - 保持选中样式但稍微变化 */
-.multiselect-active select[multiple] option:checked:hover {
+.multiselect-active .control-group select[multiple] option:checked:hover {
     background: linear-gradient(90deg, rgba(240, 240, 240, 0.98) 0%, rgba(200, 200, 200, 0.95) 100%) !important;
     color: #000000 !important;
     border-left: 4px solid #ffffff !important;
@@ -587,7 +590,7 @@ select[multiple] option:checked::before {
 }
 
 /* 强制选中状态的样式 */
-.multiselect-active select[multiple] option.force-selected {
+.multiselect-active .control-group select[multiple] option.force-selected {
     background: linear-gradient(90deg, rgba(220, 220, 220, 0.95) 0%, rgba(180, 180, 180, 0.9) 100%) !important;
     color: #000000 !important;
     border-left: 4px solid #ffffff !important;
@@ -599,7 +602,7 @@ select[multiple] option:checked::before {
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2), inset 0 0 0 1px rgba(255, 255, 255, 0.3) !important;
 }
 
-.multiselect-active select[multiple] option.force-selected::before {
+.multiselect-active .control-group select[multiple] option.force-selected::before {
     content: "✓ " !important;
     color: #000000 !important;
     font-weight: bold !important;
@@ -607,7 +610,7 @@ select[multiple] option:checked::before {
 }
 
 /* 比照模式下的选中项样式 */
-.compare-active select[multiple] option:checked {
+.compare-active .control-group select[multiple] option:checked {
     font-weight: bold !important;
     font-size: 1.05em !important; /* 增大选中项字体 */
     position: relative;
@@ -618,7 +621,7 @@ select[multiple] option:checked::before {
 }
 
 /* 比照模式下选中项的before伪元素 */
-.compare-active select[multiple] option:checked::before {
+.compare-active .control-group select[multiple] option:checked::before {
     content: "● " !important;
     font-weight: bold !important;
     margin-right: 4px !important;
@@ -626,20 +629,20 @@ select[multiple] option:checked::before {
 }
 
 /* 比照模式下不同颜色的圆点 */
-.compare-active select[multiple] option.compare-color-0:checked::before {
+.compare-active .control-group select[multiple] option.compare-color-0:checked::before {
     color: #ff5555 !important; /* 红色 */
 }
 
-.compare-active select[multiple] option.compare-color-1:checked::before {
+.compare-active .control-group select[multiple] option.compare-color-1:checked::before {
     color: #55ff55 !important; /* 绿色 */
 }
 
-.compare-active select[multiple] option.compare-color-2:checked::before {
+.compare-active .control-group select[multiple] option.compare-color-2:checked::before {
     color: #5555ff !important; /* 蓝色 */
 }
 
 /* 比照模式下未选中项的hover效果 */
-.compare-active select[multiple] option:not(:checked):hover {
+.compare-active .control-group select[multiple] option:not(:checked):hover {
     background-color: rgba(100, 100, 100, 0.7) !important;
     color: #ffffff !important;
     border-radius: 6px !important;
@@ -647,7 +650,7 @@ select[multiple] option:checked::before {
 }
 
 /* 比照模式下选中项的hover效果 */
-.compare-active select[multiple] option:checked:hover {
+.compare-active .control-group select[multiple] option:checked:hover {
     transform: scale(1.02);
 }
 
@@ -677,7 +680,6 @@ input[type="checkbox"]:checked {
 select[multiple] option.orbital-hidden {
     opacity: 0.5 !important;
     text-decoration: line-through !important;
-    background-color: rgba(100, 100, 100, 0.3) !important;
 }
 
 select[multiple] option.orbital-visible {
@@ -685,9 +687,14 @@ select[multiple] option.orbital-visible {
     text-decoration: none !important;
 }
 
+/* 比照模式下隐藏轨道的样式 - 保持背景色但显示删除线 */
+.compare-active select[multiple] option.orbital-hidden {
+    opacity: 0.6 !important;
+    text-decoration: line-through !important;
+}
+
 /* 渲染完成后的轨道选项hover效果 */
 .compare-active.rendering-completed select[multiple] option:hover {
-    background-color: rgba(120, 120, 255, 0.3) !important;
     cursor: pointer !important;
 }
 

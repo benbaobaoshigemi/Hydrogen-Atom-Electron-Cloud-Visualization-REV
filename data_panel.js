@@ -616,6 +616,11 @@
           }
         }
       });
+    } else {
+        // 如果图表已存在，更新坐标轴标题
+        if (state.chart.options.scales && state.chart.options.scales.x && state.chart.options.scales.x.title) {
+            state.chart.options.scales.x.title.text = type === 'radial' ? '径向距离 (a₀)' : '角度 (弧度)';
+        }
     }
     
     // 准备数据集 - 先将原始数据转为直方图，再转为散点
