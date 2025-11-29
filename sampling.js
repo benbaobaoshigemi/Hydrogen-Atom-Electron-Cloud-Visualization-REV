@@ -189,13 +189,6 @@ window.ElectronCloud.Sampling.processIndependentModePoint = function(x, y, z, r,
     return false;
 };
 
-// 处理比照模式下的点采样（保留以兼容旧调用，实际调用processIndependentModePoint）
-window.ElectronCloud.Sampling.processCompareModePoint = function(x, y, z, r, theta, phi, paramsList, positions, colors) {
-    return window.ElectronCloud.Sampling.processIndependentModePoint(
-        x, y, z, r, theta, phi, paramsList, positions, colors, false
-    );
-};
-
 // 处理正常模式下的点采样
 window.ElectronCloud.Sampling.processNormalModePoint = function(x, y, z, r, theta, phi, paramsList, positions, colors) {
     const state = window.ElectronCloud.state;

@@ -960,10 +960,47 @@ window.ElectronCloud.UI.updateRotationLockMutualExclusion = function() {
     }
 };
 
+// ========================================
+// 公共工具函数（避免代码重复）
+// ========================================
+
+// 计算坐标轴缩放比例（公共函数，避免重复代码）
+window.ElectronCloud.UI.calculateAxesScale = function(scaleFactor) {
+    const state = window.ElectronCloud.state;
+    const constants = window.ElectronCloud.constants;
+    
+    if (scaleFactor === 0 || state.farthestDistance === 0) {
+        return { visible: false, scale: 1 };
+    }
+    
+    const orbitalRadius = Math.max(constants.AXES_BASE_SIZE, state.farthestDistance);
+    const targetSize = orbitalRadius * scaleFactor;
+    const scale = targetSize / constants.AXES_BASE_SIZE;
+    
+    return { visible: true, scale: scale };
+};
+
+// 清除轨道选择框的所有选中状态（公共函数，避免重复代码）
+window.ElectronCloud.UI.resetOrbitalSelections = function() {
+    const ui = window.ElectronCloud.ui;
+    const state = window.ElectronCloud.state;
+    
+    if (!ui.orbitalSelect) return;
+    
+    Array.from(ui.orbitalSelect.options).forEach(option => {
+        option.selected = false;
+        option.classList.remove('force-selected');
+        option.classList.add('force-unselected');
+    });
+    
+    state.currentOrbitals = [];
+};
+
+// ========================================
+
 // 处理坐标系大小调节
 window.ElectronCloud.UI.onAxesSizeChange = function(event) {
     const state = window.ElectronCloud.state;
-    const constants = window.ElectronCloud.constants;
     
     if (state.customAxes) {
         const value = parseInt(event.target.value, 10);
@@ -972,19 +1009,12 @@ window.ElectronCloud.UI.onAxesSizeChange = function(event) {
         const scaleFactor = value / 100;
         state.axesScaleFactor = scaleFactor;
         
-        if (scaleFactor === 0 || state.farthestDistance === 0) {
-            // 比例系数为0或轨道半径为0时隐藏坐标系
-            state.customAxes.visible = false;
-        } else {
-            // 显示坐标系并根据比例系数和轨道半径计算大小
-            state.customAxes.visible = true;
-            
-            // 使用实际轨道半径，只有当farthestDistance > 0时才显示坐标系
-            const orbitalRadius = Math.max(constants.AXES_BASE_SIZE, state.farthestDistance);
-            const targetSize = orbitalRadius * scaleFactor;
-            const scale = targetSize / constants.AXES_BASE_SIZE;
-            
-            state.customAxes.scale.set(scale, scale, scale);
+        // 使用公共函数计算缩放
+        const result = window.ElectronCloud.UI.calculateAxesScale(scaleFactor);
+        state.customAxes.visible = result.visible;
+        
+        if (result.visible) {
+            state.customAxes.scale.set(result.scale, result.scale, result.scale);
         }
     }
 };
@@ -1378,19 +1408,12 @@ window.ElectronCloud.UI.onMultiselectToggle = function() {
         if (multiselectControls) multiselectControls.style.display = 'flex';
         if (ui.orbitalSelect) {
             // 【关键修复】进入多选模式前，先清除所有选择
-            // 避免从单选模式带入选中状态导致的混乱
-            Array.from(ui.orbitalSelect.options).forEach(option => {
-                option.selected = false;
-                option.classList.remove('force-selected');
-                option.classList.add('force-unselected'); // 【关键】覆盖:checked伪类幽灵效果
-            });
+            // 使用公共函数避免代码重复
+            window.ElectronCloud.UI.resetOrbitalSelections();
             
             ui.orbitalSelect.style.pointerEvents = 'auto';
             ui.orbitalSelect.multiple = true;
             ui.orbitalSelect.size = 5; // 压缩后的高度
-            
-            // 【关键修复】同步state.currentOrbitals为空数组
-            state.currentOrbitals = [];
         }
         
         // 【修改】多选模式下保持3D角向形状可用，只禁用角向分布曲线
@@ -1494,18 +1517,12 @@ window.ElectronCloud.UI.onCompareToggle = function() {
         if (multiselectControls) multiselectControls.style.display = 'flex';
         if (ui.orbitalSelect) {
             // 【关键修复】进入比照模式前，先清除所有选择
-            Array.from(ui.orbitalSelect.options).forEach(option => {
-                option.selected = false;
-                option.classList.remove('force-selected');
-                option.classList.add('force-unselected'); // 覆盖:checked伪类幽灵效果
-            });
+            // 使用公共函数避免代码重复
+            window.ElectronCloud.UI.resetOrbitalSelections();
             
             ui.orbitalSelect.style.pointerEvents = 'auto';
             ui.orbitalSelect.multiple = true; // 显式开启多选模式
             ui.orbitalSelect.size = 5; // 压缩后的高度
-            
-            // 同步state.currentOrbitals为空数组
-            window.ElectronCloud.state.currentOrbitals = [];
         }
         
         window.ElectronCloud.UI.updateSelectionCount();
@@ -1736,21 +1753,11 @@ window.ElectronCloud.UI.refreshSelectStyles = function() {
 // 清除所有选择
 window.ElectronCloud.UI.clearAllSelections = function() {
     const ui = window.ElectronCloud.ui;
-    const state = window.ElectronCloud.state;
     
     if (!ui.orbitalSelect || !ui.clearAllSelectionsBtn) return;
     
-    // 取消所有选中状态，并添加force-unselected类
-    const options = ui.orbitalSelect.querySelectorAll('option');
-    options.forEach(option => {
-        option.selected = false;
-        option.classList.remove('force-selected');
-        option.classList.add('force-unselected'); // 【关键】覆盖:checked伪类
-    });
-    
-    // 【关键修复】立即同步更新state.currentOrbitals为空数组
-    // 不等待change事件，直接更新状态
-    state.currentOrbitals = [];
+    // 使用公共函数清除所有选中状态
+    window.ElectronCloud.UI.resetOrbitalSelections();
     
     // 添加清除动画效果
     ui.clearAllSelectionsBtn.style.transform = 'scale(0.95)';

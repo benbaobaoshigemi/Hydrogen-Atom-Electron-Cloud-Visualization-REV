@@ -294,21 +294,15 @@ window.ElectronCloud.Scene.animate = function() {
 
     // 确保坐标系状态和大小正确：实时更新坐标系
     if (state.customAxes && state.axesScaleFactor > 0) {
-        if (state.farthestDistance === 0) {
-            state.customAxes.visible = false;
-        } else {
-            // 当有了实际轨道半径且用户设置了比例系数时，显示坐标系
-            state.customAxes.visible = true;
-            
-            // 实时更新坐标系大小：根据当前的farthestDistance和比例系数
-            const orbitalRadius = Math.max(constants.AXES_BASE_SIZE, state.farthestDistance);
-            const targetSize = orbitalRadius * state.axesScaleFactor;
-            const scale = targetSize / constants.AXES_BASE_SIZE;
-            
+        // 使用公共函数计算缩放
+        const result = window.ElectronCloud.UI.calculateAxesScale(state.axesScaleFactor);
+        state.customAxes.visible = result.visible;
+        
+        if (result.visible) {
             // 只有当缩放比例发生变化时才更新（避免不必要的更新）
             const currentScale = state.customAxes.scale.x;
-            if (Math.abs(currentScale - scale) > 0.001) {
-                state.customAxes.scale.set(scale, scale, scale);
+            if (Math.abs(currentScale - result.scale) > 0.001) {
+                state.customAxes.scale.set(result.scale, result.scale, result.scale);
             }
         }
     } else if (state.customAxes) {

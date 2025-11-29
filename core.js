@@ -61,7 +61,22 @@ window.ElectronCloud.constants = {
         { name: 'red', value: [1, 0.2, 0.2] },
         { name: 'green', value: [0.2, 1, 0.2] },
         { name: 'blue', value: [0.2, 0.2, 1] }
-    ]
+    ],
+    
+    // 轨道键值到显示名称的映射（统一定义，避免重复）
+    orbitalDisplayNames: {
+        '1s': '1s',
+        '2s': '2s', '2px': '2px', '2py': '2py', '2pz': '2pz',
+        '3s': '3s', '3px': '3px', '3py': '3py', '3pz': '3pz',
+        '3d_xy': '3d(xy)', '3d_xz': '3d(xz)', '3d_yz': '3d(yz)', 
+        '3d_x2-y2': '3d(x^2-y^2)', '3d_z2': '3d(z^2)',
+        '4s': '4s', '4px': '4px', '4py': '4py', '4pz': '4pz',
+        '4d_xy': '4d(xy)', '4d_xz': '4d(xz)', '4d_yz': '4d(yz)', 
+        '4d_x2-y2': '4d(x^2-y^2)', '4d_z2': '4d(z^2)',
+        '4f_xyz': '4f(xyz)', '4f_xz2': '4f(xz^2)', '4f_yz2': '4f(yz^2)', 
+        '4f_z3': '4f(z^3)', '4f_z(x2-y2)': '4f(z(x^2-y^2))', 
+        '4f_x(x2-3y2)': '4f(x(x^2-3y^2))', '4f_y(3x2-y2)': '4f(y(3x^2-y^2))'
+    }
 };
 
 // UI 元素引用
