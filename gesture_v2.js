@@ -26,7 +26,7 @@ window.ElectronCloud.Gesture = window.ElectronCloud.Gesture || {};
 const CONFIG = {
     // 捏合检测（相对距离 = 手指距离/手部大小）
     pinchStartThreshold: 0.35,    // 开始捏合（相对距离，约35%手掌宽度）
-    pinchEndThreshold: 0.18,      // 结束捏合（缩小到1/3，约18%手掌宽度）
+    pinchEndThreshold: 0.18,      // 结束捏合（约18%手掌宽度）
     pinchReleaseVelocity: 0.08,   // 手指分开速度阈值（快速分开=意图松开）
     
     // 旋转控制
@@ -465,7 +465,7 @@ function processHands(results) {
             isPinching = true;
             currentState = STATE.ROTATING;
             lastPinchPosition = pinchPos;
-            smoothedPosition = pinchPos;
+            smoothedPosition = { x: pinchPos.x, y: pinchPos.y };
             rotationVelocity = { x: 0, y: 0 };  // 清除惯性
             
             console.log('[Gesture] 开始捏合旋转');
@@ -490,14 +490,9 @@ function processHands(results) {
             // 计算位移大小
             const deltaMag = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
             
-            // 调试日志（每10帧输出一次）
-            if (Math.random() < 0.1) {
-                console.log('[Gesture] delta:', deltaX.toFixed(5), deltaY.toFixed(5), 
-                            'mag:', deltaMag.toFixed(5), 'deadzone:', CONFIG.deadzone);
-            }
-            
-            // 死区过滤
-            if (deltaMag > CONFIG.deadzone) {
+            // 简化逻辑：只要有位移就应用旋转（移除复杂的运动状态判断）
+            // 死区过滤只用于决定是否更新惯性速度，不阻止旋转
+            if (deltaMag > 0.0001) {  // 极小阈值，几乎总是应用
                 // 限幅
                 const clampedX = Math.max(-CONFIG.maxDelta, Math.min(CONFIG.maxDelta, deltaX));
                 const clampedY = Math.max(-CONFIG.maxDelta, Math.min(CONFIG.maxDelta, deltaY));
@@ -506,15 +501,19 @@ function processHands(results) {
                 const rotX = -clampedX * CONFIG.rotationSensitivity;
                 const rotY = clampedY * CONFIG.rotationSensitivity;
                 
-                console.log('[Gesture] 旋转:', rotX.toFixed(4), rotY.toFixed(4));
-                
                 applyRotation(rotX, rotY);
                 
-                // 记录速度用于惯性
-                rotationVelocity.x = rotX * CONFIG.inertiaBoost;
-                rotationVelocity.y = rotY * CONFIG.inertiaBoost;
-                
-                updateStatus("🤏 旋转中...", 'active');
+                // 只有位移足够大才更新惯性速度（避免抖动时惯性被清零）
+                if (deltaMag > CONFIG.deadzone) {
+                    rotationVelocity.x = rotX * CONFIG.inertiaBoost;
+                    rotationVelocity.y = rotY * CONFIG.inertiaBoost;
+                    updateStatus("🤏 旋转中...", 'active');
+                } else {
+                    // 位移小但仍在旋转，保持惯性衰减
+                    rotationVelocity.x *= 0.95;
+                    rotationVelocity.y *= 0.95;
+                    updateStatus("🤏 捏合中", 'active');
+                }
             } else {
                 updateStatus("🤏 捏合中（静止）", 'active');
             }
@@ -531,8 +530,9 @@ function processHands(results) {
             smoothedPosition = null;
             lastPinchDist = null;        // 重置意图识别
             smoothedPinchDist = null;
+            
             releaseBuffer = CONFIG.releaseBufferFrames;
-            // 保留惯性速度
+            // 保留惯性速度 - 不要清零 rotationVelocity！
         }
         
         if (isInertiaActive()) {
@@ -544,7 +544,7 @@ function processHands(results) {
 }
 
 // ========================================
-// 绘制手部骨架
+// 绘制手部指示（简洁空心圆）
 // ========================================
 function drawHands(landmarksArray, handednessArray) {
     if (!canvasElement || !canvasCtx) return;
@@ -570,79 +570,36 @@ function drawHands(landmarksArray, handednessArray) {
         
         // 颜色：捏合时绿色，张开时白色
         const strokeColor = pinching ? "#00FF00" : "#FFFFFF";
-        const emoji = pinching ? "🤏" : "🖐️";
         
-        canvasCtx.lineWidth = 3;
-        canvasCtx.strokeStyle = strokeColor;
-
-        // 手指连接
-        const connections = [
-            [0, 1], [1, 2], [2, 3], [3, 4],       // 拇指
-            [0, 5], [5, 6], [6, 7], [7, 8],       // 食指
-            [0, 9], [9, 10], [10, 11], [11, 12],  // 中指
-            [0, 13], [13, 14], [14, 15], [15, 16], // 无名指
-            [0, 17], [17, 18], [18, 19], [19, 20], // 小指
-            [5, 9], [9, 13], [13, 17]             // 手掌
-        ];
-
-        for (const [start, end] of connections) {
-            const p1 = landmarks[start];
-            const p2 = landmarks[end];
-            
-            // 镜像显示
-            const x1 = (1 - p1.x) * width;
-            const y1 = p1.y * height;
-            const x2 = (1 - p2.x) * width;
-            const y2 = p2.y * height;
-            
-            canvasCtx.beginPath();
-            canvasCtx.moveTo(x1, y1);
-            canvasCtx.lineTo(x2, y2);
-            canvasCtx.stroke();
-        }
-
-        // 绘制关键点
-        canvasCtx.fillStyle = strokeColor;
-        for (const landmark of landmarks) {
-            const x = (1 - landmark.x) * width;
-            const y = landmark.y * height;
-            
-            canvasCtx.beginPath();
-            canvasCtx.arc(x, y, 4, 0, 2 * Math.PI);
-            canvasCtx.fill();
-        }
-        
-        // 高亮拇指和食指（用于捏合）
+        // 获取拇指和食指尖端位置
         const thumbTip = landmarks[4];
         const indexTip = landmarks[8];
         
-        canvasCtx.fillStyle = "#FFD700";  // 金色
-        canvasCtx.beginPath();
-        canvasCtx.arc((1 - thumbTip.x) * width, thumbTip.y * height, 6, 0, 2 * Math.PI);
-        canvasCtx.fill();
-        canvasCtx.beginPath();
-        canvasCtx.arc((1 - indexTip.x) * width, indexTip.y * height, 6, 0, 2 * Math.PI);
-        canvasCtx.fill();
+        // 计算圆心（拇指和食指中点）和半径（两指距离的一半）
+        const centerX = (1 - (thumbTip.x + indexTip.x) / 2) * width;
+        const centerY = ((thumbTip.y + indexTip.y) / 2) * height;
         
-        // 捏合时画连线
+        // 计算两指距离作为直径
+        const thumbX = (1 - thumbTip.x) * width;
+        const thumbY = thumbTip.y * height;
+        const indexX = (1 - indexTip.x) * width;
+        const indexY = indexTip.y * height;
+        const radius = Math.hypot(thumbX - indexX, thumbY - indexY) / 2;
+        
+        // 绘制空心圆
+        canvasCtx.strokeStyle = strokeColor;
+        canvasCtx.lineWidth = 3;
+        canvasCtx.beginPath();
+        canvasCtx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+        canvasCtx.stroke();
+        
+        // 在圆心绘制小圆点表示捏合点
         if (pinching) {
-            canvasCtx.strokeStyle = "#FFD700";
-            canvasCtx.lineWidth = 2;
+            canvasCtx.fillStyle = strokeColor;
             canvasCtx.beginPath();
-            canvasCtx.moveTo((1 - thumbTip.x) * width, thumbTip.y * height);
-            canvasCtx.lineTo((1 - indexTip.x) * width, indexTip.y * height);
-            canvasCtx.stroke();
+            canvasCtx.arc(centerX, centerY, 5, 0, 2 * Math.PI);
+            canvasCtx.fill();
         }
-        
-        // 状态 emoji
-        const wrist = landmarks[0];
-        const labelX = (1 - wrist.x) * width;
-        const labelY = wrist.y * height - 20;
-        
-        canvasCtx.fillStyle = strokeColor;
-        canvasCtx.font = "bold 24px Arial";
-        canvasCtx.textAlign = "center";
-        canvasCtx.fillText(emoji, labelX, labelY);
     }
 }
 
