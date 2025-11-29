@@ -1,8 +1,8 @@
 /**
  * 手势控制模块 - 基于手部位置追踪的直接映射系统
- * VERSION 2.7 - 握拳控制 + 速度平滑系统
+ * VERSION 2.8 - 纯惯性控制系统
  * 
- * 交互逻辑（符合直觉的设计）：
+ * 交互逻辑（优化后的设计）：
  * ==========================================
  * 
  * ✊ 单手握拳拖拽 = 旋转视角
@@ -10,13 +10,21 @@
  *    - 左右移动 = 水平旋转，上下移动 = 垂直旋转
  *    - 就像用手捏着物体旋转一样直观
  * 
- * 🖐️ 张开手掌 = 释放控制
- *    - 松开捏合，停止控制
- *    - 提供视觉反馈表示当前处于待机状态
+ * 🖐️ 张开手掌 = 无动作
+ *    - 张开手掌本身不触发任何动作
+ *    - 旋转停止完全由惯性自然衰减决定
+ * 
+ * ✊/🖐️ 握拳/松手 = 状态切换
+ *    - 握拳和松手动作本身不代表任何操作
+ *    - 只是开始/结束追踪手部移动
+ * 
+ * ⏳ 惯性运行中 = 锁定操作
+ *    - 当视角还在惯性旋转时，不识别任何新操作
+ *    - 必须等待旋转完全停止后才能开始新的控制
  * 
  * 🤏🤏 双手捏合 = 缩放（需要两手分开）
  *    - 双手都捏合且相距足够远时，靠近/远离控制缩放
- *    - 防止单手误识别为双手
+ *    - 惯性运行中时缩放也被锁定
  * 
  * ==========================================
  */
@@ -27,7 +35,7 @@ import {
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0";
 
 // ============ 版本信息 ============
-console.log('%c[gesture.js] v2.4 - 增强惯性 + 更强复位保护', 'color: lime; font-size: 14px; font-weight: bold;');
+console.log('%c[gesture.js] v3.0 - 纯惯性控制 + 颜色状态系统', 'color: lime; font-size: 14px; font-weight: bold;');
 // ==================================
 
 // ========================================
@@ -56,8 +64,8 @@ let CONFIG = {
     releaseBufferFrames: 4,
     
     // 惯性系统
-    friction: 0.985,
-    minVelocity: 0.00005,
+    friction: 0.97,
+    minVelocity: 0.005,  // 大幅提高停止阈值，肉眼看上去停了就算停了
     inertiaBoost: 1.5,
     
     // 双手缩放
@@ -164,6 +172,7 @@ const canvasCtx = canvasElement.getContext("2d");
 
 // ========================================
 // 状态提示函数
+// 颜色系统：绿色=可操控，橙色=惯性滑动中，红色=拖拽中
 // ========================================
 function updateStatus(message, state = 'waiting') {
     const popup = document.getElementById('gesture-status-popup');
@@ -175,9 +184,10 @@ function updateStatus(message, state = 'waiting') {
         text.innerText = message;
         if (indicator) {
             switch(state) {
-                case 'active':    indicator.style.backgroundColor = '#00ff00'; break;
-                case 'ready':     indicator.style.backgroundColor = '#ffffff'; break;
-                case 'waiting':   indicator.style.backgroundColor = 'yellow'; break;
+                case 'ready':     indicator.style.backgroundColor = '#00ff00'; break;  // 绿色 - 可操控
+                case 'inertia':   indicator.style.backgroundColor = '#ff8800'; break;  // 橙色 - 惯性滑动中
+                case 'dragging':  indicator.style.backgroundColor = '#ff0000'; break;  // 红色 - 拖拽中
+                case 'waiting':   indicator.style.backgroundColor = 'yellow'; break;   // 黄色 - 等待
                 case 'error':     indicator.style.backgroundColor = 'red'; break;
                 default:          indicator.style.backgroundColor = 'yellow';
             }
@@ -350,6 +360,13 @@ window.ElectronCloud.Gesture.isRunning = function() {
 };
 
 // ========================================
+// 检查惯性是否正在运行
+// ========================================
+function isInertiaRunning() {
+    return Math.abs(rotationVelocity.x) > CONFIG.minVelocity || Math.abs(rotationVelocity.y) > CONFIG.minVelocity;
+}
+
+// ========================================
 // 物理循环：应用惯性旋转
 // ========================================
 let inertiaLogCounter = 0;
@@ -358,7 +375,7 @@ function physicsLoop() {
 
     // 只有在非拖拽状态下才应用惯性
     if (!isDragging && !isPinchZooming) {
-        if (Math.abs(rotationVelocity.x) > CONFIG.minVelocity || Math.abs(rotationVelocity.y) > CONFIG.minVelocity) {
+        if (isInertiaRunning()) {
             // 每20帧打印一次
             if (inertiaLogCounter++ % 20 === 0) {
                 console.log('%c[INERTIA]', 'color: gold;', 
@@ -661,15 +678,25 @@ function getHandCenter(landmarks) {
 function processHandTracking(results) {
     const popupText = document.getElementById('gesture-status-text');
     
+    // 检查惯性是否正在运行
+    const inertiaActive = !isDragging && !isPinchZooming && isInertiaRunning();
+    
     // 无手检测
     if (!results || !results.landmarks || results.landmarks.length === 0) {
-        updateStatus("等待检测手部...", 'waiting');
+        // 根据状态显示不同颜色
+        if (isDragging) {
+            updateStatus("✊ 拖拽中...", 'dragging');
+        } else if (isInertiaRunning()) {
+            updateStatus("⏳ 惯性旋转中...", 'inertia');
+        } else {
+            updateStatus("等待检测手部...", 'waiting');
+        }
         
         if (canvasElement && canvasCtx) {
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
         }
         
-        // 停止所有交互，但保留惯性
+        // 停止所有交互，但保留惯性（不清零 rotationVelocity）
         if (isDragging) {
             isDragging = false;
             lastRawPosition = null;
@@ -684,8 +711,29 @@ function processHandTracking(results) {
     const hands = results.landmarks;
     const handedness = results.handedness;
     
-    // 绘制手部骨架
+    // 绘制手部骨架（始终绘制）
     drawHandSkeleton(hands, handedness);
+    
+    // ========================================
+    // 惯性运行中时，如果握拳就直接开始控制（清除惯性）
+    // 只有张开手掌时才继续惯性滑行
+    // ========================================
+    if (inertiaActive) {
+        // 识别当前手势状态
+        const landmarks = hands[0];
+        const isFist = isFistWithHysteresis(landmarks, wasFist);
+        wasFist = isFist;
+        
+        if (isFist) {
+            // 握拳了！直接清除惯性并开始控制
+            rotationVelocity = { x: 0, y: 0 };  // 清除惯性
+            // 不 return，继续执行下面的握拳拖拽逻辑
+        } else {
+            // 张开手掌，继续惯性滑行
+            updateStatus("⏳ 惯性旋转中...\n🖐️ 张开手掌", 'inertia');
+            return;
+        }
+    }
     
     // ========================================
     // 双手捏合缩放（需要两只手分开且都捏合）
@@ -771,7 +819,8 @@ function processHandTracking(results) {
             rotationVelocity = { x: 0, y: 0 }; // 清除惯性
             console.log('%c[DRAG START]', 'color: yellow; font-weight: bold;', 
                 'pos:', rawHandCenter.x.toFixed(4), rawHandCenter.y.toFixed(4));
-            updateStatus("✊ 握拳拖拽中...\n移动手部旋转视角", 'active');
+            // 红色 - 拖拽中
+            updateStatus("✊ 握拳拖拽中...\n移动手部旋转视角", 'dragging');
         } else {
             // 继续拖拽 - 使用速度平滑系统
             // 计算平滑后的速度
@@ -802,7 +851,7 @@ function processHandTracking(results) {
                         // 重置速度系统
                         smoothedVelocity = { x: 0, y: 0 };
                         lastMoveDirection = null;
-                        updateStatus("✊ 检测到复位...", 'active');
+                        updateStatus("✊ 检测到复位...", 'dragging');
                         return;
                     }
                 }
@@ -833,19 +882,19 @@ function processHandTracking(results) {
                 const boost = CONFIG.inertiaBoost || 1.0;
                 rotationVelocity.x = clampedDeltaX * boost;
                 rotationVelocity.y = clampedDeltaY * boost;
+                
+                // 红色 - 拖拽中
+                updateStatus("🔴 拖拽中...\n移动手部旋转视角", 'dragging');
             } else {
                 // 在死区内时，让速度平滑器更快衰减
                 smoothedVelocity.x *= 0.5;
                 smoothedVelocity.y *= 0.5;
-                if (Math.random() < 0.05) {
-                    console.log('%c[DEADZONE]', 'color: gray;', 
-                        'delta:', deltaX.toFixed(5), deltaY.toFixed(5),
-                        'threshold:', CONFIG.deadzone);
-                }
+                // 红色 - 拖拽中（静止）
+                updateStatus("🔴 握拳中...\n移动手部旋转视角", 'dragging');
             }
         }
     } else {
-        // 手掌张开 = 释放控制
+        // 手掌张开 = 释放控制（但不意味着停止）
         if (isDragging) {
             console.log('%c[DRAG END]', 'color: cyan; font-weight: bold;',
                 'velocity:', rotationVelocity.x.toFixed(4), rotationVelocity.y.toFixed(4));
@@ -854,10 +903,17 @@ function processHandTracking(results) {
             smoothedVelocity = { x: 0, y: 0 };
             lastMoveDirection = null;
             releaseBufferFrames = CONFIG.releaseBufferFrames;  // 启动释放缓冲
-            // 保留惯性速度
+            // 保留惯性速度 - 旋转停止只由惯性自然衰减决定
         }
+        
         wasFist = false;
-        updateStatus("🖐️ 张开手掌 - 待机\n握拳开始控制", 'ready');
+        // 张开手掌不触发任何动作，惯性会继续运行
+        // 颜色：橙色=惯性滑动中，绿色=可操控
+        if (isInertiaRunning()) {
+            updateStatus("⏳ 惯性旋转中...\n🖐️ 等待停止", 'inertia');
+        } else {
+            updateStatus("🟢 就绪\n握拳开始控制", 'ready');
+        }
     }
 }
 
