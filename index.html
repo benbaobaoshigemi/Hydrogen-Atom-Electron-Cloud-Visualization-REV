@@ -126,13 +126,14 @@
                     </div>
                 </div>
                 <div class="control-group has-submenu-right">
-                    <!-- 自动旋转：改为类似闪烁模式的样式 -->
-                    <div class="feature-row compact">
-                        <button id="rotation-settings-btn" class="feature-settings-btn" title="自动旋转设置">⚙</button>
-                        <div id="rotation-feature-box" class="feature-box">
+                    <!-- 自动旋转：左边开关 | 中间录制 | 右边设置 -->
+                    <div class="feature-row compact rotation-row">
+                        <div id="rotation-feature-box" class="feature-box small">
                             <span class="feature-name">自动旋转</span>
-                            <input type="checkbox" id="auto-rotate-toggle" />
+                            <input type="checkbox" id="auto-rotate-toggle" disabled />
                         </div>
+                        <button id="record-rotation-btn" class="feature-action-btn" title="录制旋转视频" disabled>录制</button>
+                        <button id="rotation-settings-btn" class="feature-settings-btn" title="自动旋转设置">⚙</button>
                     </div>
                 </div>
             </div>
@@ -317,12 +318,12 @@
     <script src="physics.js"></script>
     <script src="data_panel.js"></script>
     <!-- 模块化脚本文件 -->
-    <script src="core.js?v=5"></script>
-    <script src="scene.js?v=5"></script>
-    <script src="orbital.js?v=5"></script>
-    <script src="sampling.js?v=5"></script>
-    <script src="visualization.js?v=7"></script>
-    <script src="ui.js?v=5"></script>
+    <script src="core.js?v=11"></script>
+    <script src="scene.js?v=11"></script>
+    <script src="orbital.js?v=11"></script>
+    <script src="sampling.js?v=11"></script>
+    <script src="visualization.js?v=12"></script>
+    <script src="ui.js?v=11"></script>
     <!-- gesture_v2.js v4.0: 捏合旋转模式 - 更稳定的手势控制 -->
     <script type="module" src="gesture_v2.js?v=4.0"></script>
     <script>

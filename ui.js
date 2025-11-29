@@ -158,6 +158,9 @@ window.ElectronCloud.UI.init = function() {
     // 确保初始状态下坐标轴滑动条状态正确
     window.ElectronCloud.UI.updateAxesSizeRangeState();
     
+    // 确保初始状态下自动旋转按钮禁用（渲染开始前）
+    window.ElectronCloud.UI.updateAutoRotateButtonState();
+    
     // 确保初始状态下坐标系正确隐藏（farthestDistance=0时）
     if (window.ElectronCloud.ui.axesSizeRange) {
         window.ElectronCloud.UI.onAxesSizeChange({ target: window.ElectronCloud.ui.axesSizeRange });
@@ -222,6 +225,7 @@ window.ElectronCloud.UI.init = function() {
     // 自动旋转开关
     const autoRotateToggle = document.getElementById('auto-rotate-toggle');
     const rotationFeatureBox = document.getElementById('rotation-feature-box');
+    const recordRotationBtn = document.getElementById('record-rotation-btn');
     
     if (autoRotateToggle) {
         autoRotateToggle.addEventListener('change', (e) => {
@@ -232,6 +236,9 @@ window.ElectronCloud.UI.init = function() {
             if (rotationFeatureBox) {
                 rotationFeatureBox.classList.toggle('active', e.target.checked);
             }
+            
+            // 更新录制按钮状态
+            window.ElectronCloud.UI.updateRecordButtonState();
             
             // 互斥逻辑：自动旋转启用时，禁用锁定视角
             window.ElectronCloud.UI.updateRotationLockMutualExclusion();
@@ -245,6 +252,14 @@ window.ElectronCloud.UI.init = function() {
                 autoRotateToggle.checked = !autoRotateToggle.checked;
                 autoRotateToggle.dispatchEvent(new Event('change', { bubbles: true }));
             }
+        });
+    }
+    
+    // 录制旋转视频按钮
+    if (recordRotationBtn) {
+        recordRotationBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            window.ElectronCloud.UI.toggleRotationRecording();
         });
     }
     
@@ -271,11 +286,17 @@ window.ElectronCloud.UI.init = function() {
             // 闪烁模式下仍然允许调节亮度（不再禁用滑动条）
             // 亮度滑动条控制点云基础透明度，闪烁效果在此基础上叠加
             
-            // 如果关闭闪烁模式，恢复bloom状态和原始颜色
+            // 如果关闭闪烁模式，恢复bloom状态、原始颜色和透明度
             if (!e.target.checked && state.bloomPass) {
                 // 保持最低辉光效果（不完全关闭），让画面保持一定亮度
                 state.bloomPass.strength = 0.15;
                 state.bloomEnabled = true;
+                
+                // 【关键】恢复点云透明度为1
+                if (state.points && state.points.material) {
+                    state.points.material.opacity = 1;
+                    state.points.material.needsUpdate = true;
+                }
                 
                 // 恢复星空模式下修改的原始颜色
                 if (state.baseColors && state.points && state.points.geometry) {
@@ -1333,6 +1354,7 @@ window.ElectronCloud.UI.onPauseToggle = function() {
 // 多选模式功能
 window.ElectronCloud.UI.onMultiselectToggle = function() {
     const ui = window.ElectronCloud.ui;
+    const state = window.ElectronCloud.state;
     
     // 互斥：取消比照模式
     if (ui.compareToggle && ui.compareToggle.checked) {
@@ -1355,19 +1377,36 @@ window.ElectronCloud.UI.onMultiselectToggle = function() {
         if (controlPanel) controlPanel.classList.add('multiselect-active');
         if (multiselectControls) multiselectControls.style.display = 'flex';
         if (ui.orbitalSelect) {
+            // 【关键修复】进入多选模式前，先清除所有选择
+            // 避免从单选模式带入选中状态导致的混乱
+            Array.from(ui.orbitalSelect.options).forEach(option => {
+                option.selected = false;
+                option.classList.remove('force-selected');
+                option.classList.add('force-unselected'); // 【关键】覆盖:checked伪类幽灵效果
+            });
+            
             ui.orbitalSelect.style.pointerEvents = 'auto';
             ui.orbitalSelect.multiple = true;
             ui.orbitalSelect.size = 5; // 压缩后的高度
+            
+            // 【关键修复】同步state.currentOrbitals为空数组
+            state.currentOrbitals = [];
         }
         
-        // 多选模式下只禁用3D角向形状开关，保持坐标轴开关可用
-        window.ElectronCloud.UI.disableAngular3DToggle();
+        // 【修改】多选模式下保持3D角向形状可用，只禁用角向分布曲线
+        // window.ElectronCloud.UI.disableAngular3DToggle(); // 不再禁用3D角向形状
+        
+        // 【新增】多选模式下禁用角向分布曲线选项
+        window.ElectronCloud.UI.disableAngularPlotOption();
         
         window.ElectronCloud.UI.updateSelectionCount();
         window.ElectronCloud.UI.refreshSelectStyles();
     } else {
-        // 重新启用显示开关功能
-        window.ElectronCloud.UI.enableAngular3DToggle();
+        // 重新启用显示开关功能（3D角向形状在多选模式下也是可用的，所以这里不需要特别处理）
+        // window.ElectronCloud.UI.enableAngular3DToggle(); // 多选模式下没有禁用，所以退出时也不需要启用
+        
+        // 【新增】重新启用角向分布曲线选项
+        window.ElectronCloud.UI.enableAngularPlotOption();
         
         if (label) label.textContent = '选择轨道';
         if (controlPanel) controlPanel.classList.remove('multiselect-active');
@@ -1378,20 +1417,31 @@ window.ElectronCloud.UI.onMultiselectToggle = function() {
             ui.orbitalSelect.size = 3; // 压缩后的高度
         }
         
-        // 清除强制样式类
+        // 清除强制样式类（包括force-unselected）
         if (ui.orbitalSelect) {
             const options = ui.orbitalSelect.querySelectorAll('option');
             options.forEach(option => {
-                option.classList.remove('force-selected');
+                option.classList.remove('force-selected', 'force-unselected');
             });
         }
         
-        // 在退出多选模式时，保留第一个选中的选项，取消其他选项
-        if (ui.orbitalSelect && ui.orbitalSelect.selectedOptions.length > 1) {
-            const firstSelected = ui.orbitalSelect.selectedOptions[0];
-            Array.from(ui.orbitalSelect.options).forEach(option => {
-                option.selected = (option === firstSelected);
-            });
+        // 【修复】退出多选模式时，处理选中状态
+        if (ui.orbitalSelect) {
+            const selectedCount = ui.orbitalSelect.selectedOptions.length;
+            if (selectedCount > 1) {
+                // 多个选中时，保留第一个选中的选项
+                const firstSelected = ui.orbitalSelect.selectedOptions[0];
+                Array.from(ui.orbitalSelect.options).forEach(option => {
+                    option.selected = (option === firstSelected);
+                });
+            } else if (selectedCount === 0) {
+                // 没有选中任何选项时，默认选中第一个选项（1s）
+                ui.orbitalSelect.options[0].selected = true;
+            }
+            // 同步state.currentOrbitals
+            const selected = Array.from(ui.orbitalSelect.selectedOptions).map(o => o.value);
+            state.currentOrbitals = selected.length ? selected : ['1s'];
+            
             const changeEvent = new Event('change', { bubbles: true });
             ui.orbitalSelect.dispatchEvent(changeEvent);
         }
@@ -1443,9 +1493,19 @@ window.ElectronCloud.UI.onCompareToggle = function() {
         }
         if (multiselectControls) multiselectControls.style.display = 'flex';
         if (ui.orbitalSelect) {
+            // 【关键修复】进入比照模式前，先清除所有选择
+            Array.from(ui.orbitalSelect.options).forEach(option => {
+                option.selected = false;
+                option.classList.remove('force-selected');
+                option.classList.add('force-unselected'); // 覆盖:checked伪类幽灵效果
+            });
+            
             ui.orbitalSelect.style.pointerEvents = 'auto';
             ui.orbitalSelect.multiple = true; // 显式开启多选模式
             ui.orbitalSelect.size = 5; // 压缩后的高度
+            
+            // 同步state.currentOrbitals为空数组
+            window.ElectronCloud.state.currentOrbitals = [];
         }
         
         window.ElectronCloud.UI.updateSelectionCount();
@@ -1479,22 +1539,34 @@ window.ElectronCloud.UI.onCompareToggle = function() {
             ui.orbitalSelect.size = 3; // 压缩后的高度
         }
         
-        // 清除强制样式类
+        // 清除强制样式类（包括force-unselected）
         if (ui.orbitalSelect) {
             const options = ui.orbitalSelect.querySelectorAll('option');
             options.forEach(option => {
-                option.classList.remove('force-selected');
+                option.classList.remove('force-selected', 'force-unselected');
                 option.style.backgroundColor = '';
                 option.style.color = '';
             });
         }
         
-        // 在退出比照模式时，保留第一个选中的选项，取消其他选项
-        if (ui.orbitalSelect && ui.orbitalSelect.selectedOptions.length > 1) {
-            const firstSelected = ui.orbitalSelect.selectedOptions[0];
-            Array.from(ui.orbitalSelect.options).forEach(option => {
-                option.selected = (option === firstSelected);
-            });
+        // 【修复】退出比照模式时，处理选中状态
+        if (ui.orbitalSelect) {
+            const state = window.ElectronCloud.state;
+            const selectedCount = ui.orbitalSelect.selectedOptions.length;
+            if (selectedCount > 1) {
+                // 多个选中时，保留第一个选中的选项
+                const firstSelected = ui.orbitalSelect.selectedOptions[0];
+                Array.from(ui.orbitalSelect.options).forEach(option => {
+                    option.selected = (option === firstSelected);
+                });
+            } else if (selectedCount === 0) {
+                // 没有选中任何选项时，默认选中第一个选项（1s）
+                ui.orbitalSelect.options[0].selected = true;
+            }
+            // 同步state.currentOrbitals
+            const selected = Array.from(ui.orbitalSelect.selectedOptions).map(o => o.value);
+            state.currentOrbitals = selected.length ? selected : ['1s'];
+            
             const changeEvent = new Event('change', { bubbles: true });
             ui.orbitalSelect.dispatchEvent(changeEvent);
         }
@@ -1518,6 +1590,15 @@ window.ElectronCloud.UI.setupMultiselectMode = function() {
     
     // 存储滚动位置
     let savedScrollTop = 0;
+    
+    // 【新增】阻止浏览器默认的focus选择行为
+    ui.orbitalSelect.addEventListener('focus', function(event) {
+        // 在多选或比照模式下，focus时不应该自动选择任何选项
+        if ((ui.multiselectToggle && ui.multiselectToggle.checked) || 
+            (ui.compareToggle && ui.compareToggle.checked)) {
+            savedScrollTop = ui.orbitalSelect.scrollTop;
+        }
+    });
     
     // 多选模式和比照模式的点击处理
     ui.orbitalSelect.addEventListener('mousedown', function(event) {
@@ -1566,6 +1647,17 @@ window.ElectronCloud.UI.setupMultiselectMode = function() {
             }, 300);
         }
     });
+    
+    // 【新增】阻止键盘导航自动选择（在多选/比照模式下）
+    ui.orbitalSelect.addEventListener('keydown', function(event) {
+        if ((ui.multiselectToggle && ui.multiselectToggle.checked) || 
+            (ui.compareToggle && ui.compareToggle.checked)) {
+            // 阻止方向键等导航键的默认行为（会自动选择选项）
+            if (['ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) {
+                event.preventDefault();
+            }
+        }
+    });
 };
 
 // 更新选择计数
@@ -1604,8 +1696,8 @@ window.ElectronCloud.UI.refreshSelectStyles = function() {
     // 强制重新应用样式
     const options = ui.orbitalSelect.querySelectorAll('option');
     options.forEach(option => {
-        // 清除颜色类，但保留隐藏/可见类（如果渲染完成）
-        option.classList.remove('force-selected', 'compare-color-0', 'compare-color-1', 'compare-color-2');
+        // 清除所有颜色类，但保留隐藏/可见类（如果渲染完成）
+        option.classList.remove('force-selected', 'force-unselected', 'compare-color-0', 'compare-color-1', 'compare-color-2');
         
         // 如果渲染未完成，清除隐藏/可见类
         if (!state.renderingCompleted) {
@@ -1632,6 +1724,9 @@ window.ElectronCloud.UI.refreshSelectStyles = function() {
                 option.style.color = '';
             }
         } else {
+            // 【关键修复】为未选中的选项添加force-unselected类
+            // 这样可以覆盖浏览器的:checked伪类幽灵效果
+            option.classList.add('force-unselected');
             option.style.backgroundColor = '';
             option.style.color = '';
         }
@@ -1641,15 +1736,21 @@ window.ElectronCloud.UI.refreshSelectStyles = function() {
 // 清除所有选择
 window.ElectronCloud.UI.clearAllSelections = function() {
     const ui = window.ElectronCloud.ui;
+    const state = window.ElectronCloud.state;
     
     if (!ui.orbitalSelect || !ui.clearAllSelectionsBtn) return;
     
-    // 取消所有选中状态
+    // 取消所有选中状态，并添加force-unselected类
     const options = ui.orbitalSelect.querySelectorAll('option');
     options.forEach(option => {
         option.selected = false;
         option.classList.remove('force-selected');
+        option.classList.add('force-unselected'); // 【关键】覆盖:checked伪类
     });
+    
+    // 【关键修复】立即同步更新state.currentOrbitals为空数组
+    // 不等待change事件，直接更新状态
+    state.currentOrbitals = [];
     
     // 添加清除动画效果
     ui.clearAllSelectionsBtn.style.transform = 'scale(0.95)';
@@ -1657,7 +1758,7 @@ window.ElectronCloud.UI.clearAllSelections = function() {
         ui.clearAllSelectionsBtn.style.transform = 'scale(1)';
     }, 150);
     
-    // 触发change事件更新选择状态
+    // 触发change事件更新选择状态（保留用于更新UI）
     const changeEvent = new Event('change', { bubbles: true });
     ui.orbitalSelect.dispatchEvent(changeEvent);
     
@@ -1707,6 +1808,54 @@ window.ElectronCloud.UI.enableAngular3DToggle = function() {
         }
         // 调用现有的状态更新函数来正确设置可用性
         window.ElectronCloud.UI.updateAngular3DToggleState();
+    }
+};
+
+// 禁用角向分布曲线选项（多选模式下使用）
+window.ElectronCloud.UI.disableAngularPlotOption = function() {
+    const ui = window.ElectronCloud.ui;
+    
+    if (ui.plotTypeSelect) {
+        // 找到角向分布选项并禁用它
+        const angularOption = ui.plotTypeSelect.querySelector('option[value="angular"]');
+        if (angularOption) {
+            angularOption.disabled = true;
+            angularOption.title = '多选模式下不可用';
+        }
+        
+        // 如果当前选中的是角向分布，切换到径向分布
+        if (ui.plotTypeSelect.value === 'angular') {
+            ui.plotTypeSelect.value = 'radial';
+            // 触发change事件更新图表
+            const changeEvent = new Event('change', { bubbles: true });
+            ui.plotTypeSelect.dispatchEvent(changeEvent);
+        }
+        
+        // 更新标签样式提示
+        const plotTypeLabel = document.querySelector('label[for="plot-type-select"]');
+        if (plotTypeLabel) {
+            plotTypeLabel.title = '多选模式下仅支持径向分布';
+        }
+    }
+};
+
+// 启用角向分布曲线选项（退出多选模式时使用）
+window.ElectronCloud.UI.enableAngularPlotOption = function() {
+    const ui = window.ElectronCloud.ui;
+    
+    if (ui.plotTypeSelect) {
+        // 启用角向分布选项
+        const angularOption = ui.plotTypeSelect.querySelector('option[value="angular"]');
+        if (angularOption) {
+            angularOption.disabled = false;
+            angularOption.title = '';
+        }
+        
+        // 清除标签提示
+        const plotTypeLabel = document.querySelector('label[for="plot-type-select"]');
+        if (plotTypeLabel) {
+            plotTypeLabel.title = '';
+        }
     }
 };
 
@@ -1893,4 +2042,193 @@ window.ElectronCloud.UI.onGestureButtonClick = function() {
     } else {
         console.error("Gesture module not loaded");
     }
+};
+
+// 更新自动旋转按钮状态（只有在没有点云时才禁用）
+window.ElectronCloud.UI.updateAutoRotateButtonState = function() {
+    const state = window.ElectronCloud.state;
+    const autoRotateToggle = document.getElementById('auto-rotate-toggle');
+    const rotationFeatureBox = document.getElementById('rotation-feature-box');
+    
+    // 只要有点云就可以启用自动旋转
+    const canEnable = state.points !== null && state.points !== undefined;
+    
+    if (autoRotateToggle) {
+        autoRotateToggle.disabled = !canEnable;
+    }
+    
+    if (rotationFeatureBox) {
+        if (canEnable) {
+            rotationFeatureBox.style.opacity = '';
+            rotationFeatureBox.style.pointerEvents = '';
+        } else {
+            rotationFeatureBox.style.opacity = '0.4';
+            rotationFeatureBox.style.pointerEvents = 'none';
+        }
+    }
+    
+    // 同时更新录制按钮状态
+    window.ElectronCloud.UI.updateRecordButtonState();
+};
+
+// 更新录制按钮状态
+window.ElectronCloud.UI.updateRecordButtonState = function() {
+    const state = window.ElectronCloud.state;
+    const recordBtn = document.getElementById('record-rotation-btn');
+    
+    if (!recordBtn) return;
+    
+    // 录制按钮启用条件：有点云 && 自动旋转已启用
+    const canRecord = state.points && 
+                      state.autoRotate && 
+                      state.autoRotate.enabled === true;
+    
+    // 如果正在录制，保持启用状态
+    if (state.isRecordingRotation) {
+        recordBtn.disabled = false;
+    } else {
+        recordBtn.disabled = !canRecord;
+    }
+};
+
+// 切换录制状态
+window.ElectronCloud.UI.toggleRotationRecording = function() {
+    const state = window.ElectronCloud.state;
+    
+    if (state.isRecordingRotation) {
+        // 停止录制
+        window.ElectronCloud.UI.stopRotationRecording();
+    } else {
+        // 开始录制
+        window.ElectronCloud.UI.startRotationRecording();
+    }
+};
+
+// 开始录制旋转视频
+window.ElectronCloud.UI.startRotationRecording = function() {
+    const state = window.ElectronCloud.state;
+    const recordBtn = document.getElementById('record-rotation-btn');
+    
+    if (!state.renderer || !state.autoRotate || !state.autoRotate.enabled) {
+        alert('请先启用自动旋转');
+        return;
+    }
+    
+    // 检查浏览器支持
+    if (!window.MediaRecorder) {
+        alert('您的浏览器不支持视频录制功能');
+        return;
+    }
+    
+    const canvas = state.renderer.domElement;
+    
+    // 尝试获取支持的 MIME 类型
+    let mimeType = 'video/webm;codecs=vp9';
+    if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'video/webm;codecs=vp8';
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+            mimeType = 'video/webm';
+            if (!MediaRecorder.isTypeSupported(mimeType)) {
+                alert('您的浏览器不支持 WebM 视频录制');
+                return;
+            }
+        }
+    }
+    
+    try {
+        // 获取画布流，60fps
+        const stream = canvas.captureStream(60);
+        
+        // 计算视频比特率 - 基于实际像素分辨率
+        // 高分辨率需要更高比特率才能保持质量
+        const pixelCount = canvas.width * canvas.height;
+        // 基准: 1080p (1920x1080 = 2073600 像素) 用 12Mbps
+        // 按像素数线性缩放，最低 8Mbps，最高 30Mbps
+        const baseBitrate = 12000000; // 12 Mbps for 1080p
+        const basePixels = 1920 * 1080;
+        let videoBitrate = Math.round(baseBitrate * (pixelCount / basePixels));
+        videoBitrate = Math.max(8000000, Math.min(videoBitrate, 30000000));
+        
+        console.log('录制参数: 画布尺寸', canvas.width, 'x', canvas.height, 
+                    ', 像素数:', pixelCount, ', 比特率:', (videoBitrate / 1000000).toFixed(1), 'Mbps');
+        
+        // 创建 MediaRecorder
+        state.mediaRecorder = new MediaRecorder(stream, {
+            mimeType: mimeType,
+            videoBitsPerSecond: videoBitrate
+        });
+        
+        state.recordedChunks = [];
+        
+        state.mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) {
+                state.recordedChunks.push(e.data);
+            }
+        };
+        
+        state.mediaRecorder.onstop = () => {
+            // 生成视频文件
+            const blob = new Blob(state.recordedChunks, { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            link.download = `electron-cloud-rotation-${timestamp}.webm`;
+            link.href = url;
+            document.body.appendChild(link);
+            link.click();
+            setTimeout(() => {
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+            }, 100);
+            
+            console.log('录制完成，视频已保存');
+            
+            // 提示用户如何使用WebM文件
+            setTimeout(() => {
+                alert('视频已保存为 WebM 格式\n\n使用方法：\n• 可直接在浏览器中播放\n• 可上传到 B站、YouTube 等平台\n• 如需转为 MP4，可使用在线工具或 FFmpeg');
+            }, 200);
+        };
+        
+        // 【关键】重置累计角度，从0开始计算
+        state.autoRotate.totalAngle = 0;
+        state.isRecordingRotation = true;
+        
+        console.log('开始录制，累计角度已重置为0，目标:', (Math.PI * 2).toFixed(4), '(一周)');
+        
+        // 开始录制
+        state.mediaRecorder.start(100); // 每100ms收集一次数据
+        
+        // 更新按钮状态
+        if (recordBtn) {
+            recordBtn.textContent = '停止';
+            recordBtn.classList.add('recording');
+        }
+        
+        console.log('开始录制旋转视频，等待旋转一周...');
+        
+    } catch (err) {
+        console.error('录制启动失败:', err);
+        alert('录制启动失败: ' + err.message);
+    }
+};
+
+// 停止录制旋转视频
+window.ElectronCloud.UI.stopRotationRecording = function() {
+    const state = window.ElectronCloud.state;
+    const recordBtn = document.getElementById('record-rotation-btn');
+    
+    if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') {
+        state.mediaRecorder.stop();
+    }
+    
+    state.isRecordingRotation = false;
+    state.autoRotate.totalAngle = 0;
+    
+    // 更新按钮状态
+    if (recordBtn) {
+        recordBtn.textContent = '录制';
+        recordBtn.classList.remove('recording');
+    }
+    
+    console.log('录制已停止');
 };

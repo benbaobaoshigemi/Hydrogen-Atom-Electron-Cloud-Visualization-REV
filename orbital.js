@@ -12,6 +12,18 @@ window.ElectronCloud.Orbital.startDrawing = function() {
     const state = window.ElectronCloud.state;
     const ui = window.ElectronCloud.ui;
     
+    // 读取轨道参数
+    const selected = Array.from(ui.orbitalSelect.selectedOptions || []).map(o => o.value);
+    
+    // 【关键检查】在多选或比照模式下，必须选择至少一个轨道才能开始渲染
+    const isMultiselectMode = ui.multiselectToggle && ui.multiselectToggle.checked;
+    const isCompareMode = ui.compareToggle && ui.compareToggle.checked;
+    
+    if ((isMultiselectMode || isCompareMode) && selected.length === 0) {
+        alert('请先选择至少一个轨道再启动渲染');
+        return;
+    }
+    
     // 停止当前绘制
     state.isDrawing = false;
     
@@ -28,9 +40,8 @@ window.ElectronCloud.Orbital.startDrawing = function() {
     // 重置角向更新标记
     state.angularUpdated = false;
     
-    // 读取轨道参数
-    const selected = Array.from(ui.orbitalSelect.selectedOptions || []).map(o => o.value);
-    state.currentOrbitals = selected.length ? selected : [ui.orbitalSelect.value];
+    // 设置当前轨道
+    state.currentOrbitals = selected.length ? selected : [ui.orbitalSelect.value || '1s'];
     state.currentOrbital = state.currentOrbitals[0];
     
     // 动态调整采样边界：根据所选轨道的最大 n 值
@@ -78,11 +89,22 @@ window.ElectronCloud.Orbital.startDrawing = function() {
     // 【关键修复】渲染开始前，强制重置自动旋转状态，避免坐标轴偏移
     if (state.autoRotate) {
         state.autoRotate.enabled = false;
+        state.autoRotate.totalAngle = 0;
         // 同步UI状态
         const autoRotateToggle = document.getElementById('auto-rotate-toggle');
         const rotationFeatureBox = document.getElementById('rotation-feature-box');
-        if (autoRotateToggle) autoRotateToggle.checked = false;
-        if (rotationFeatureBox) rotationFeatureBox.classList.remove('active');
+        if (autoRotateToggle) {
+            autoRotateToggle.checked = false;
+            autoRotateToggle.disabled = false; // 渲染开始后即可启用
+        }
+        if (rotationFeatureBox) {
+            rotationFeatureBox.classList.remove('active');
+            rotationFeatureBox.style.opacity = '';
+            rotationFeatureBox.style.pointerEvents = '';
+        }
+        // 录制按钮在自动旋转未启用时仍然禁用
+        const recordBtn = document.getElementById('record-rotation-btn');
+        if (recordBtn) recordBtn.disabled = true;
     }
 
     // 开始绘制
@@ -191,6 +213,20 @@ window.ElectronCloud.Orbital.clearDrawing = function() {
     
     // 更新角向分布3D开关状态
     window.ElectronCloud.UI.updateAngular3DToggleState();
+    
+    // 重置自动旋转 UI 状态
+    const autoRotateToggle = document.getElementById('auto-rotate-toggle');
+    const rotationFeatureBox = document.getElementById('rotation-feature-box');
+    if (autoRotateToggle) {
+        autoRotateToggle.checked = false;
+        autoRotateToggle.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    if (rotationFeatureBox) {
+        rotationFeatureBox.classList.remove('active');
+    }
+    
+    // 更新自动旋转按钮状态（重置后禁用）
+    window.ElectronCloud.UI.updateAutoRotateButtonState();
 };
 
 // 更新轨道可见性

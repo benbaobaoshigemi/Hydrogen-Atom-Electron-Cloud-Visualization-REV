@@ -28,7 +28,11 @@ window.ElectronCloud.Scene.init = function() {
         preserveDrawingBuffer: true 
     });
     state.renderer.setSize(window.innerWidth, window.innerHeight);
-    state.renderer.setPixelRatio(window.devicePixelRatio);
+    // 使用更高的像素比以提高画质，最小2倍，最大不超过3倍
+    const pixelRatio = Math.max(2, Math.min(window.devicePixelRatio, 3));
+    state.renderer.setPixelRatio(pixelRatio);
+    console.log('渲染器像素比:', pixelRatio, '画布分辨率:', 
+        Math.round(window.innerWidth * pixelRatio), 'x', Math.round(window.innerHeight * pixelRatio));
     container.appendChild(state.renderer.domElement);
 
     // 初始化后期处理（Bloom辉光效果）
@@ -184,9 +188,16 @@ window.ElectronCloud.Scene.onWindowResize = function() {
     state.camera.updateProjectionMatrix();
     state.renderer.setSize(window.innerWidth, window.innerHeight);
     
-    // 更新后期处理composer尺寸
+    // 【关键】使用实际像素分辨率更新后期处理
+    const pixelRatio = state.renderer.getPixelRatio();
+    const width = Math.floor(window.innerWidth * pixelRatio);
+    const height = Math.floor(window.innerHeight * pixelRatio);
+    
     if (state.composer) {
-        state.composer.setSize(window.innerWidth, window.innerHeight);
+        state.composer.setSize(width, height);
+    }
+    if (state.bloomPass) {
+        state.bloomPass.resolution.set(width, height);
     }
 };
 
@@ -207,17 +218,18 @@ window.ElectronCloud.Scene.initBloom = function() {
             return;
         }
         
+        // 【关键】使用实际像素分辨率，而不是 CSS 尺寸
+        const pixelRatio = state.renderer.getPixelRatio();
+        const width = Math.floor(window.innerWidth * pixelRatio);
+        const height = Math.floor(window.innerHeight * pixelRatio);
+        
         // 创建支持 alpha 通道的 RenderTarget（这是支持透明背景导出的关键）
-        const renderTarget = new THREE.WebGLRenderTarget(
-            window.innerWidth * window.devicePixelRatio,
-            window.innerHeight * window.devicePixelRatio,
-            {
-                minFilter: THREE.LinearFilter,
-                magFilter: THREE.LinearFilter,
-                format: THREE.RGBAFormat,  // 使用 RGBA 格式以支持 alpha 通道
-                stencilBuffer: false
-            }
-        );
+        const renderTarget = new THREE.WebGLRenderTarget(width, height, {
+            minFilter: THREE.LinearFilter,
+            magFilter: THREE.LinearFilter,
+            format: THREE.RGBAFormat,  // 使用 RGBA 格式以支持 alpha 通道
+            stencilBuffer: false
+        });
         
         // 创建EffectComposer，使用支持 alpha 的 renderTarget
         state.composer = new THREE.EffectComposer(state.renderer, renderTarget);
@@ -227,16 +239,16 @@ window.ElectronCloud.Scene.initBloom = function() {
         renderPass.clearAlpha = 0;  // 清除时使用透明背景
         state.composer.addPass(renderPass);
         
-        // Bloom通道 (初始强度为0，由亮度滑条控制)
+        // 【关键】Bloom通道也使用实际像素分辨率
         state.bloomPass = new THREE.UnrealBloomPass(
-            new THREE.Vector2(window.innerWidth, window.innerHeight),
+            new THREE.Vector2(width, height),
             0,      // 初始强度 strength
             0.5,    // 半径 radius
             0       // 阈值 threshold - 设为0使所有颜色都能发光
         );
         state.composer.addPass(state.bloomPass);
         
-        console.log('Bloom辉光效果初始化完成（支持透明背景）');
+        console.log('Bloom辉光效果初始化完成，分辨率:', width, 'x', height);
     } catch (err) {
         console.warn('Bloom辉光效果初始化失败:', err);
         state.composer = null;
@@ -323,6 +335,25 @@ window.ElectronCloud.Scene.animate = function() {
         if (state.customAxes) {
             state.customAxes.rotateOnAxis(axis, angle);
         }
+        
+        // 累计旋转角度（用于录制功能）
+        if (state.autoRotate.totalAngle === undefined) {
+            state.autoRotate.totalAngle = 0;
+        }
+        state.autoRotate.totalAngle += angle;
+        
+        // 如果正在录制，显示进度
+        if (state.isRecordingRotation) {
+            const progress = (state.autoRotate.totalAngle / (Math.PI * 2) * 100).toFixed(1);
+            // 已旋转一周（2π），自动停止录制
+            if (state.autoRotate.totalAngle >= Math.PI * 2) {
+                console.log('已旋转一周 (360°)，自动停止录制');
+                state.isRecordingRotation = false; // 立即标记为停止，避免重复调用
+                if (window.ElectronCloud.UI.stopRotationRecording) {
+                    window.ElectronCloud.UI.stopRotationRecording();
+                }
+            }
+        }
     }
     
     // 闪烁模式
@@ -331,20 +362,42 @@ window.ElectronCloud.Scene.animate = function() {
         
         if (state.heartbeat.mode === 'heartbeat') {
             // 心跳模式：所有点同时闪烁
-            state.heartbeat.phase += 0.02 * frequencyScale;
+            state.heartbeat.phase += 0.016 * frequencyScale; // 稍慢一点，更舒适
             if (state.heartbeat.phase > Math.PI * 2) {
                 state.heartbeat.phase -= Math.PI * 2;
             }
             
-            // 双峰心跳波形：主峰 + 次峰
+            // 优化的心跳波形：模拟真实心跳的lub-dub节奏
             const t = state.heartbeat.phase;
-            const mainBeat = Math.pow(Math.max(0, Math.sin(t)), 4);
-            const secondBeat = Math.pow(Math.max(0, Math.sin(t + 0.6)), 6) * 0.3;
-            const heartbeatWave = mainBeat + secondBeat;
+            const cycle = t / (Math.PI * 2); // 0-1 周期归一化
+            
+            // 第一个峰（主峰 lub）：使用高斯函数，位于周期的 15% 处
+            const peak1Center = 0.15;
+            const peak1Width = 0.08;
+            const peak1 = Math.exp(-Math.pow((cycle - peak1Center) / peak1Width, 2));
+            
+            // 第二个峰（次峰 dub）：位于周期的 30% 处，稍矮稍窄
+            const peak2Center = 0.30;
+            const peak2Width = 0.06;
+            const peak2 = Math.exp(-Math.pow((cycle - peak2Center) / peak2Width, 2)) * 0.7;
+            
+            // 合并波形 (0-1)
+            const heartbeatWave = peak1 + peak2;
+            const normalizedWave = Math.min(1, heartbeatWave); // 限制在 0-1
             
             // 应用到bloom强度
             const maxStrength = (state.heartbeat.maxBrightness || 200) / 100 * 1.5;
-            state.bloomPass.strength = heartbeatWave * maxStrength;
+            state.bloomPass.strength = normalizedWave * maxStrength;
+            
+            // 【关键】暗时设置透明度30%，亮时100%
+            // 透明度范围：0.3 (暗) 到 1.0 (亮)
+            const minOpacity = 0.3;
+            const targetOpacity = minOpacity + normalizedWave * (1.0 - minOpacity);
+            
+            if (state.points && state.points.material) {
+                state.points.material.opacity = targetOpacity;
+                state.points.material.needsUpdate = true;
+            }
         } else if (state.heartbeat.mode === 'starry') {
             // 星空模式：每个点独立随机闪烁，像星海一样
             state.heartbeat.phase += 0.02 * frequencyScale;
@@ -476,6 +529,11 @@ window.ElectronCloud.Scene.onSamplingCompleted = function() {
     
     // 更新坐标轴滑动条状态（采样完成后可修改）
     window.ElectronCloud.UI.updateAxesSizeRangeState();
+    
+    // 更新自动旋转按钮状态（采样完成后可启用）
+    if (window.ElectronCloud.UI.updateAutoRotateButtonState) {
+        window.ElectronCloud.UI.updateAutoRotateButtonState();
+    }
     
     console.log('采样完成，准备显示数据面板');
     

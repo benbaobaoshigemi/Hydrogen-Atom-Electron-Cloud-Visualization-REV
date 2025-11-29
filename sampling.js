@@ -45,16 +45,19 @@ window.ElectronCloud.Sampling.updatePoints = function() {
         const theta = Math.acos(z / r);
         const phi = Math.atan2(y, x);
 
-        // 比照模式：分轨道独立采样策略
-        if (ui.compareToggle && ui.compareToggle.checked) {
-            const success = window.ElectronCloud.Sampling.processCompareModePoint(
-                x, y, z, r, theta, phi, paramsList, positions, colorsAttr.array
+        // 【重要修复】多选模式和比照模式都使用独立采样策略
+        // 确保各轨道电子云渲染完全独立，互不干扰
+        if ((ui.compareToggle && ui.compareToggle.checked) || 
+            (ui.multiselectToggle && ui.multiselectToggle.checked)) {
+            const success = window.ElectronCloud.Sampling.processIndependentModePoint(
+                x, y, z, r, theta, phi, paramsList, positions, colorsAttr.array,
+                ui.multiselectToggle && ui.multiselectToggle.checked // 是否为多选模式（用于决定颜色）
             );
             if (success) {
                 newPoints++;
             }
         } else {
-            // 非比照模式：使用原有的叠加逻辑
+            // 单选模式：使用原有的逻辑（单轨道无需独立处理）
             const success = window.ElectronCloud.Sampling.processNormalModePoint(
                 x, y, z, r, theta, phi, paramsList, positions, colorsAttr.array
             );
@@ -87,31 +90,21 @@ window.ElectronCloud.Sampling.updatePoints = function() {
     }
 };
 
-// 处理比照模式下的点采样
-window.ElectronCloud.Sampling.processCompareModePoint = function(x, y, z, r, theta, phi, paramsList, positions, colors) {
+// 处理独立模式下的点采样（多选模式和比照模式共用）
+// isMultiselectMode: 是否为多选模式，用于决定颜色方案
+window.ElectronCloud.Sampling.processIndependentModePoint = function(x, y, z, r, theta, phi, paramsList, positions, colors, isMultiselectMode) {
     const state = window.ElectronCloud.state;
     const constants = window.ElectronCloud.constants;
+    const ui = window.ElectronCloud.ui;
     
     // 随机选择一个轨道进行采样尝试
     const randomOrbitalIndex = Math.floor(Math.random() * paramsList.length);
     const p = paramsList[randomOrbitalIndex];
     const density = Hydrogen.density3D_real(p.angKey, p.n, p.l, r, theta, phi);
     
-    // 使用该轨道的密度进行独立的蒙特卡罗采样
-    // 动态计算 scaleFactor，避免在低密度区域采样过慢或在高密度区域截断
-    // 1s 轨道最大密度约为 0.32 (1/pi)，所以 scaleFactor 应约为 3.14
-    // 4f 轨道最大密度约为 0.005，所以 scaleFactor 应约为 200
-    // 简单的启发式：根据 n 值调整
-    const maxDensityEstimate = 1 / (Math.PI * Math.pow(p.n, 3)); // 粗略估计 s 轨道最大值
-    // 为了安全起见（避免截断），我们使用略小于 1/maxDensity 的值，或者直接使用保守值
-    // 但为了效率，我们需要尽可能大。
-    // 让我们使用一个更保守的估计，确保 density * scaleFactor <= 1
-    // 对于 n=1, max ~ 0.32. 1/0.32 = 3.125.
-    // 对于 n=2, max ~ 0.04. 1/0.04 = 25.
-    // 对于 n=4, max ~ 0.005. 1/0.005 = 200.
-    // 之前的 baseScale = 200 对于 n=1 来说太大了 (200 * 0.32 = 64 >> 1)，导致中心区域被截断成均匀分布
-    
-    // 修正：根据 n 动态调整 scaleFactor
+    // 【关键】为每个轨道独立计算scaleFactor
+    // 确保每个轨道按照自己的概率密度分布采样，而不是混在一起
+    // 这样可以保证各轨道的边界完全独立
     const scaleFactor = Math.min(200, 3.0 * Math.pow(p.n, 3)); 
     
     if (Math.random() < density * scaleFactor) {
@@ -120,17 +113,39 @@ window.ElectronCloud.Sampling.processCompareModePoint = function(x, y, z, r, the
         positions[i3 + 1] = y;
         positions[i3 + 2] = z;
         
-        // 直接使用采样轨道对应的颜色
         let r_color, g_color, b_color;
-        if (randomOrbitalIndex < constants.compareColors.length) {
-            const color = constants.compareColors[randomOrbitalIndex].value;
-            r_color = color[0];
-            g_color = color[1];
-            b_color = color[2];
+        
+        if (isMultiselectMode) {
+            // 多选模式：支持相位显示功能
+            const phaseOn = document.getElementById('phase-toggle')?.checked;
+            let sign = 0;
+            if (phaseOn) {
+                // 只计算当前选中轨道的波函数，不叠加其他轨道
+                const R = Hydrogen.radialR(p.n, p.l, r);
+                const Y = Hydrogen.realYlm_value(p.angKey.l, p.angKey.m, p.angKey.t, theta, phi);
+                const psi = R * Y;
+                sign = psi > 0 ? 1 : (psi < 0 ? -1 : 0);
+            }
+            
+            if (sign > 0) { // 红色（正相位）
+                r_color = 1; g_color = 0.2; b_color = 0.2;
+            } else if (sign < 0) { // 蓝色（负相位）
+                r_color = 0.2; g_color = 0.2; b_color = 1;
+            } else { // 中性白
+                r_color = 1; g_color = 1; b_color = 1;
+            }
         } else {
-            r_color = 1;
-            g_color = 1;
-            b_color = 1;
+            // 比照模式：使用固定颜色区分不同轨道
+            if (randomOrbitalIndex < constants.compareColors.length) {
+                const color = constants.compareColors[randomOrbitalIndex].value;
+                r_color = color[0];
+                g_color = color[1];
+                b_color = color[2];
+            } else {
+                r_color = 1;
+                g_color = 1;
+                b_color = 1;
+            }
         }
         
         colors[i3] = r_color;
@@ -142,7 +157,6 @@ window.ElectronCloud.Sampling.processCompareModePoint = function(x, y, z, r, the
             state.baseColors[i3] = r_color;
             state.baseColors[i3 + 1] = g_color;
             state.baseColors[i3 + 2] = b_color;
-            // 更新计数器（pointCount还没有增加，所以是 pointCount + 1）
             state.baseColorsCount = state.pointCount + 1;
         }
         
@@ -153,7 +167,7 @@ window.ElectronCloud.Sampling.processCompareModePoint = function(x, y, z, r, the
         }
         state.orbitalPointsMap[orbitalKey].push(state.pointCount);
         
-        // 在对比模式下，只为被采样的轨道记录数据
+        // 记录采样数据（用于图表绘制）
         if (!state.orbitalSamplesMap[orbitalKey]) {
             state.orbitalSamplesMap[orbitalKey] = [];
         }
@@ -173,6 +187,13 @@ window.ElectronCloud.Sampling.processCompareModePoint = function(x, y, z, r, the
     }
     
     return false;
+};
+
+// 处理比照模式下的点采样（保留以兼容旧调用，实际调用processIndependentModePoint）
+window.ElectronCloud.Sampling.processCompareModePoint = function(x, y, z, r, theta, phi, paramsList, positions, colors) {
+    return window.ElectronCloud.Sampling.processIndependentModePoint(
+        x, y, z, r, theta, phi, paramsList, positions, colors, false
+    );
 };
 
 // 处理正常模式下的点采样

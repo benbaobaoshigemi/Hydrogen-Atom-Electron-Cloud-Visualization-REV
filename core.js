@@ -155,6 +155,20 @@ window.ElectronCloud.resetState = function() {
     state.baseColors = null;
     state.baseColorsCount = 0;
     
+    // 重置自动旋转状态
+    if (state.autoRotate) {
+        state.autoRotate.enabled = false;
+        state.autoRotate.totalAngle = 0;
+    }
+    
+    // 如果正在录制，停止录制
+    if (state.isRecordingRotation) {
+        state.isRecordingRotation = false;
+        if (window.ElectronCloud.UI && window.ElectronCloud.UI.stopRotationRecording) {
+            window.ElectronCloud.UI.stopRotationRecording();
+        }
+    }
+    
     // 重置图表数据
     state.backgroundChartData = {
         radial: null,

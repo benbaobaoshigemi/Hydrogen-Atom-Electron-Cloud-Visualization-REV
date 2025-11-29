@@ -725,6 +725,40 @@ canvas {
     margin-right: 4px !important;
 }
 
+/* 【关键修复】强制未选中状态的样式 - 覆盖:checked伪类的幽灵效果 */
+.multiselect-active .control-group select[multiple] option.force-unselected,
+.multiselect-active .control-group select[multiple] option.force-unselected:checked {
+    background: transparent !important;
+    color: rgba(200, 200, 200, 0.9) !important;
+    border: none !important;
+    font-weight: normal !important;
+    font-size: 1em !important;
+    box-shadow: none !important;
+    margin: 2px 4px !important;
+    padding: 4px 8px !important;
+}
+
+.multiselect-active .control-group select[multiple] option.force-unselected::before,
+.multiselect-active .control-group select[multiple] option.force-unselected:checked::before {
+    content: "" !important;
+}
+
+/* 比照模式下的强制未选中状态 */
+.compare-active .control-group select[multiple] option.force-unselected,
+.compare-active .control-group select[multiple] option.force-unselected:checked {
+    background: transparent !important;
+    color: rgba(200, 200, 200, 0.9) !important;
+    border: none !important;
+    font-weight: normal !important;
+    font-size: 1em !important;
+    box-shadow: none !important;
+}
+
+.compare-active .control-group select[multiple] option.force-unselected::before,
+.compare-active .control-group select[multiple] option.force-unselected:checked::before {
+    content: "" !important;
+}
+
 /* 比照模式下的选中项样式 */
 .compare-active .control-group select[multiple] option:checked {
     font-weight: bold !important;
@@ -1271,13 +1305,60 @@ select[multiple] option.orbital-visible {
     cursor: pointer;
 }
 
-.feature-row.compact .feature-box:hover {
+.feature-row.compact .feature-box:hover:not([style*="pointer-events: none"]) {
     background: rgba(255, 255, 255, 0.08);
 }
 
 /* 隐藏 feature-box 内的 checkbox（统一用点击切换） */
 .feature-box input[type="checkbox"] {
     display: none;
+}
+
+/* 自动旋转行特殊布局 */
+.rotation-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.rotation-row .feature-box.small {
+    flex: 1;
+    min-width: 80px;
+}
+
+.rotation-row .feature-action-btn {
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    color: rgba(255, 255, 255, 0.85);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.rotation-row .feature-action-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.25);
+}
+
+.rotation-row .feature-action-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.rotation-row .feature-action-btn.recording {
+    background: rgba(255, 80, 80, 0.3);
+    border-color: rgba(255, 80, 80, 0.6);
+    color: rgba(255, 120, 120, 1);
+    animation: recording-pulse 1s ease-in-out infinite;
+}
+
+@keyframes recording-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
 }
 
 /* 多选/比照模式切换行 */
