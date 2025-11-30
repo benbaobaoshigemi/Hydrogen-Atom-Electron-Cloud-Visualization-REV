@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>氢原子电子云可视化</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <button id="app-fullscreen-btn" title="全屏模式">⛶</button>
+    
+    <!-- 右上角手势状态图标 (默认隐藏) -->
+    <div id="gesture-status-icon" title="手势控制运行中" style="display: none;">
+        <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path>
+            <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"></path>
+            <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path>
+            <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"></path>
+        </svg>
+    </div>
+
+    <!-- 当前点数显示 -->
+    <div id="point-count-display">当前点数 <span id="point-count">0</span></div>
+
+    <div id="gesture-status-popup" class="gesture-popup" style="display: none; position: fixed; top: 20px; right: 60px; left: auto; transform: none;">
+        <div class="status-indicator"></div>
+        <span id="gesture-status-text">等待手势...</span>
+    </div>
+    <div id="container"></div>
+
+    <!-- 实验功能面板 -->
+    <div id="experimental-panel" class="panel collapsed">
+        <div class="panel-tab" id="experimental-panel-tab" title="点击展开实验功能">实验 ◂</div>
+        <div class="panel-content">
+            <div class="panel-header">
+                <h3>实验功能</h3>
+                <div>
+                    <button id="experimental-collapse-btn" class="collapse-btn" title="收起">▸</button>
+                </div>
+            </div>
+            <div class="panel-body">
+                <!-- 闪烁模式：左设置图标 | 右功能框(名称+点击切换) -->
+                <div class="feature-row">
+                    <button id="flicker-settings-btn" class="feature-settings-btn" title="闪烁设置">⚙</button>
+                    <div id="flicker-feature-box" class="feature-box clickable">
+                        <span class="feature-name">闪烁模式</span>
+                        <input type="checkbox" id="heartbeat-toggle" style="display:none" />
+                    </div>
+                </div>
+                <!-- 导出图片：左设置图标 | 右功能框(名称+执行按钮) -->
+                <div class="feature-row">
+                    <button id="export-settings-btn" class="feature-settings-btn" title="导出设置">⚙</button>
+                    <div id="export-feature-box" class="feature-box">
+                        <span class="feature-name">导出图片</span>
+                        <button id="export-image-btn" class="feature-action-btn" title="导出">导出</button>
+                    </div>
+                </div>
+                <div class="control-group action-buttons">
+                    <button id="gesture-control-btn" title="手势控制 (渲染完成后可用)" disabled>
+                        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path>
+                            <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"></path>
+                            <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path>
+                            <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"></path>
+                        </svg>
+                        <span>手势控制</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 闪烁设置二级面板 -->
+    <div id="flicker-submenu" class="submenu-panel right-side">
+        <div class="submenu-header">闪烁设置</div>
+        <div class="submenu-body">
+            <div class="control-group">
+                <label>闪烁类型</label>
+                <select id="flicker-mode-select">
+                    <option value="heartbeat" selected>心跳</option>
+                    <option value="starry">星空</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="flicker-frequency-range">闪烁频率</label>
+                <input id="flicker-frequency-range" type="range" min="0" max="100" step="1" value="70">
+            </div>
+            <div class="control-group">
+                <label for="heartbeat-max-brightness">最大亮度</label>
+                <input id="heartbeat-max-brightness" type="range" min="100" max="300" step="10" value="200">
+            </div>
+        </div>
+    </div>
+
+    <!-- 导出设置二级面板 -->
+    <div id="export-submenu" class="submenu-panel right-side">
+        <div class="submenu-header">导出设置</div>
+        <div class="submenu-body">
+            <div class="control-group">
+                <label>背景</label>
+                <select id="export-background-select">
+                    <option value="black" selected>黑色</option>
+                    <option value="transparent">透明</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- 视图面板 -->
+    <div id="view-panel" class="panel collapsed">
+        <div class="panel-tab" id="view-panel-tab" title="点击展开视图面板">◂ 视图</div>
+        <div class="panel-content">
+            <div class="panel-header">
+                <h3>视图</h3>
+                <div>
+                    <button id="view-collapse-btn" class="collapse-btn" title="收起">▸</button>
+                </div>
+            </div>
+            <div class="panel-body">
+                <div class="control-group">
+                    <label>锁定视角</label>
+                    <div class="view-lock-buttons">
+                        <button class="view-lock-btn" data-axis="x" title="锁定到X轴视角">X</button>
+                        <button class="view-lock-btn" data-axis="y" title="锁定到Y轴视角">Y</button>
+                        <button class="view-lock-btn" data-axis="z" title="锁定到Z轴视角">Z</button>
+                    </div>
+                </div>
+                <div class="control-group has-submenu-right">
+                    <!-- 自动旋转：左边开关 | 中间录制 | 右边设置 -->
+                    <div class="feature-row compact rotation-row">
+                        <div id="rotation-feature-box" class="feature-box small">
+                            <span class="feature-name">自动旋转</span>
+                            <input type="checkbox" id="auto-rotate-toggle" disabled />
+                        </div>
+                        <button id="record-rotation-btn" class="feature-action-btn" title="录制旋转视频" disabled>录制</button>
+                        <button id="rotation-settings-btn" class="feature-settings-btn" title="自动旋转设置">⚙</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 自动旋转设置二级面板 -->
+    <div id="rotation-submenu" class="submenu-panel left-side">
+        <div class="submenu-header">自动旋转设置</div>
+        <div class="submenu-body">
+            <div class="control-group rotation-axis-inputs">
+                <label>旋转轴</label>
+                <div class="axis-inputs">
+                    <input type="number" id="rotation-axis-x" value="0" step="0.1" placeholder="X">
+                    <input type="number" id="rotation-axis-y" value="1" step="0.1" placeholder="Y">
+                    <input type="number" id="rotation-axis-z" value="0" step="0.1" placeholder="Z">
+                </div>
+            </div>
+            <div class="control-group">
+                <label for="rotation-speed-range">旋转速度 <span id="rotation-speed-value">0</span></label>
+                <input id="rotation-speed-range" type="range" min="0" max="10" step="0.1" value="0">
+            </div>
+        </div>
+    </div>
+
+    <div id="control-panel" class="panel">
+        <div class="panel-tab" id="control-panel-tab" title="点击展开控制面板">◂ 控制</div>
+        <div class="panel-content">
+            <div class="panel-header">
+                <h3>控制</h3>
+                <div>
+                    <button id="control-collapse-btn" class="collapse-btn" title="收起">▸</button>
+                </div>
+            </div>
+            <div class="panel-body">
+            <!-- 多选/比照模式放在一行，使用新UI样式 -->
+            <div class="mode-toggle-row">
+                <div class="mode-toggle-box" id="multiselect-box">
+                    <span class="mode-name">多选</span>
+                    <input type="checkbox" id="multiselect-toggle" />
+                </div>
+                <div class="mode-toggle-box" id="compare-box">
+                    <span class="mode-name">比照</span>
+                    <input type="checkbox" id="compare-toggle" />
+                </div>
+            </div>
+            <div class="control-group multiselect-controls" style="display: none;">
+                <button id="clear-all-selections" class="clear-selections-btn">清除所有选择</button>
+            </div>
+        <div class="control-group">
+            <label for="orbital-select">选择轨道</label>
+            <select id="orbital-select" size="3">
+                <!-- n=1 -->
+                <option value="1s" selected>1s</option>
+                <!-- n=2 -->
+                <option value="2s">2s</option>
+                <option value="2px">2px</option>
+                <option value="2py">2py</option>
+                <option value="2pz">2pz</option>
+                <!-- n=3 -->
+                <option value="3s">3s</option>
+                <option value="3px">3px</option>
+                <option value="3py">3py</option>
+                <option value="3pz">3pz</option>
+                <option value="3d_xy">3d(xy)</option>
+                <option value="3d_xz">3d(xz)</option>
+                <option value="3d_yz">3d(yz)</option>
+                <option value="3d_x2-y2">3d(x^2-y^2)</option>
+                <option value="3d_z2">3d(z^2)</option>
+                <!-- n=4 -->
+                <option value="4s">4s</option>
+                <option value="4px">4px</option>
+                <option value="4py">4py</option>
+                <option value="4pz">4pz</option>
+                <option value="4d_xy">4d(xy)</option>
+                <option value="4d_xz">4d(xz)</option>
+                <option value="4d_yz">4d(yz)</option>
+                <option value="4d_x2-y2">4d(x^2-y^2)</option>
+                <option value="4d_z2">4d(z^2)</option>
+                <option value="4f_xyz">4f(xyz)</option>
+                <option value="4f_xz2">4f(xz^2)</option>
+                <option value="4f_yz2">4f(yz^2)</option>
+                <option value="4f_z3">4f(z^3)</option>
+                <option value="4f_z(x2-y2)">4f(z(x^2-y^2))</option>
+                <option value="4f_x(x2-3y2)">4f(x(x^2-3y^2))</option>
+                <option value="4f_y(3x2-y2)">4f(y(3x^2-y^2))</option>
+            </select>
+        </div>
+        <!-- 渲染相位/固定至中心 并排放置，使用变绿样式 -->
+        <div class="mode-toggle-row">
+            <div class="mode-toggle-box" id="phase-box">
+                <span class="mode-name">渲染相位</span>
+                <input type="checkbox" id="phase-toggle" />
+            </div>
+            <div class="mode-toggle-box" id="center-lock-box">
+                <span class="mode-name">固定至中心</span>
+                <input type="checkbox" id="center-lock" />
+            </div>
+        </div>
+        <div class="control-group">
+            <label for="max-points-select">最大点数</label>
+            <select id="max-points-select">
+                <option value="6000">6,000</option>
+                <option value="12000">12,000</option>
+                <option value="24000" selected>24,000</option>
+                <option value="48000">48,000</option>
+                <option value="100000">100,000</option>
+                <option value="400000">400,000</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label for="axes-size-range">坐标系大小</label>
+            <input id="axes-size-range" type="range" min="0" max="105" step="1" value="0" title="比例系数 0-1.05，0为关闭">
+        </div>
+        <div class="control-group">
+            <label for="speed-range">生成速度</label>
+            <input id="speed-range" type="range" min="20000" max="800000" step="1000" value="500000">
+        </div>
+        <div class="control-group">
+            <label for="size-select">点的大小</label>
+            <select id="size-select">
+                <option value="small">小</option>
+                <option value="medium" selected>中</option>
+                <option value="large">大</option>
+            </select>
+        </div>
+        <div class="control-group brightness-control">
+            <label for="opacity-range">亮度</label>
+            <div class="brightness-slider-container">
+                <input id="opacity-range" type="range" min="0" max="100" step="1" value="80">
+                <div class="brightness-marker" title="80%：辉光起点"></div>
+            </div>
+        </div>
+        <div class="control-group action-buttons">
+            <button id="start-button">启动</button>
+            <button id="pause-button">暂停</button>
+            <button id="clear-button">重置</button>
+        </div>
+            </div> <!-- 结束 panel-body -->
+        </div> <!-- 结束 panel-content -->
+    </div>
+
+    <div id="data-panel" class="panel">
+        <div id="data-panel-resize-handle" title="拖动改变大小"></div>
+        <div class="panel-tab" id="data-panel-tab" title="点击展开数据面板">数据 ▸</div>
+        <div class="panel-content">
+            <div class="panel-header">
+                <h3>数据</h3>
+                <div>
+                    <button id="chart-enlarge-btn" title="放大/还原图表">⤢</button>
+                    <button id="data-collapse-btn" class="collapse-btn" title="收起">◂</button>
+                </div>
+            </div>
+            <div class="panel-body">
+                <div class="control-group">
+                    <label for="plot-type-select">概率密度图</label>
+                    <select id="plot-type-select">
+                        <option value="radial">径向分布</option>
+                        <option value="angular">角向分布 (θ)</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="angular-3d-toggle">3D角向形状</label>
+                    <input type="checkbox" id="angular-3d-toggle">
+                </div>
+                <div class="chart-container">
+                    <canvas id="probability-chart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script src="physics.js"></script>
+    <script src="data_panel.js"></script>
+    <!-- 模块化脚本文件 -->
+    <script src="core.js?v=11"></script>
+    <script src="scene.js?v=11"></script>
+    <script src="orbital.js?v=11"></script>
+    <script src="sampling.js?v=11"></script>
+    <script src="visualization.js?v=12"></script>
+    <script src="ui.js?v=11"></script>
+    <!-- gesture_v2.js v4.0: 捏合旋转模式 - 更稳定的手势控制 -->
+    <script type="module" src="gesture_v2.js?v=4.0"></script>
+    <script>
+        // 环境检测
+        if (window.location.protocol === 'file:') {
+            const div = document.createElement('div');
+            div.style.cssText = 'position:fixed;top:0;left:0;width:100%;background:red;color:white;text-align:center;padding:10px;z-index:99999;font-weight:bold;';
+            div.innerHTML = '警告：检测到您正在直接打开 HTML 文件。手势识别功能需要 HTTP 服务器环境。<br>请运行文件夹中的 <code>start_server.py</code> 脚本，或使用 VS Code Live Server。';
+            document.body.appendChild(div);
+        }
+    </script>
+    <script src="main.js"></script>
+</body>
+</html>
