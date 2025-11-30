@@ -63,7 +63,9 @@ window.ElectronCloud.Orbital.startDrawing = function() {
     const bufferSize = state.MAX_POINTS;
     const geometry = new THREE.BufferGeometry();
     const positions = new Float32Array(bufferSize * 3);
+    const colors = new Float32Array(bufferSize * 3); // 预创建颜色数组
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3)); // 添加颜色属性
 
     // 创建材质
     const sprite = window.ElectronCloud.Scene.generateCircleSprite();
@@ -119,6 +121,17 @@ window.ElectronCloud.Orbital.startDrawing = function() {
     lockButtons.forEach(btn => {
         btn.classList.remove('active', 'green');
     });
+    
+    // 【关键修复】重置所有场景对象的旋转，确保坐标系不歪斜
+    if (state.customAxes) {
+        state.customAxes.rotation.set(0, 0, 0);
+        state.customAxes.updateMatrix();
+    }
+    if (state.angularOverlay) {
+        state.angularOverlay.rotation.set(0, 0, 0);
+        state.angularOverlay.updateMatrix();
+    }
+    // 新创建的 points 不需要重置，因为刚创建时旋转就是 (0,0,0)
 
     // 开始绘制
     state.isDrawing = true;

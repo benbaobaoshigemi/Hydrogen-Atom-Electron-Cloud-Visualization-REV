@@ -2,6 +2,236 @@
 window.ElectronCloud = window.ElectronCloud || {};
 window.ElectronCloud.Sampling = {};
 
+// ==================== Web Worker 管理 ====================
+
+// Worker 池配置
+const WORKER_POOL_SIZE = navigator.hardwareConcurrency || 4; // 使用 CPU 核心数
+const workerPool = [];
+let workerReady = 0;
+let pendingTasks = [];
+let taskIdCounter = 0;
+let useWorkers = true; // 是否使用 Worker（可降级）
+let workersInitialized = false; // 防止重复初始化
+let activeTasks = 0; // 当前正在执行的任务数
+let lastSubmitTime = 0; // 上次提交时间（节流）
+
+// 初始化 Worker 池
+window.ElectronCloud.Sampling.initWorkers = function() {
+    // 防止重复初始化
+    if (workersInitialized) {
+        return;
+    }
+    workersInitialized = true;
+    
+    if (typeof Worker === 'undefined') {
+        console.warn('Web Workers 不可用，将使用主线程采样');
+        useWorkers = false;
+        return;
+    }
+
+    try {
+        for (let i = 0; i < WORKER_POOL_SIZE; i++) {
+            const worker = new Worker('sampling-worker.js');
+            
+            worker.onmessage = function(e) {
+                const { type, taskId, result } = e.data;
+                
+                if (type === 'ready') {
+                    workerReady++;
+                    console.log(`Worker ${i} 就绪 (${workerReady}/${WORKER_POOL_SIZE})`);
+                    worker.busy = false;
+                } else if (type === 'sample-result') {
+                    // 处理采样结果
+                    window.ElectronCloud.Sampling.handleWorkerResult(result, taskId);
+                    worker.busy = false;
+                    activeTasks--;
+                    
+                    // 处理队列中的下一个任务
+                    window.ElectronCloud.Sampling.processNextTask();
+                }
+            };
+            
+            worker.onerror = function(err) {
+                console.error('Worker 错误:', err);
+                worker.busy = false;
+                activeTasks--;
+            };
+            
+            worker.busy = false;
+            workerPool.push(worker);
+        }
+        
+        console.log(`初始化 ${WORKER_POOL_SIZE} 个 Web Worker 用于并行采样`);
+    } catch (err) {
+        console.warn('Worker 初始化失败，将使用主线程采样:', err);
+        useWorkers = false;
+    }
+};
+
+// 处理 Worker 返回的结果
+window.ElectronCloud.Sampling.handleWorkerResult = function(result, taskId) {
+    const state = window.ElectronCloud.state;
+    const ui = window.ElectronCloud.ui;
+    
+    if (!state.points || !result.points.length) return;
+    
+    const positions = state.points.geometry.attributes.position.array;
+    const colorsAttr = state.points.geometry.getAttribute('color');
+    const colors = colorsAttr ? colorsAttr.array : null;
+    
+    // 将 Worker 采样的点添加到主线程
+    for (const point of result.points) {
+        if (state.pointCount >= state.MAX_POINTS) break;
+        
+        const i3 = state.pointCount * 3;
+        positions[i3] = point.x;
+        positions[i3 + 1] = point.y;
+        positions[i3 + 2] = point.z;
+        
+        if (colors) {
+            colors[i3] = point.r;
+            colors[i3 + 1] = point.g;
+            colors[i3 + 2] = point.b;
+        }
+        
+        // 同步 baseColors
+        if (state.baseColors) {
+            state.baseColors[i3] = point.r;
+            state.baseColors[i3 + 1] = point.g;
+            state.baseColors[i3 + 2] = point.b;
+            state.baseColorsCount = state.pointCount + 1;
+        }
+        
+        // 记录轨道点映射（用于比照模式开关）
+        if (point.orbitalIndex >= 0) {
+            const orbitalKey = state.currentOrbitals[point.orbitalIndex];
+            if (orbitalKey) {
+                if (!state.orbitalPointsMap[orbitalKey]) {
+                    state.orbitalPointsMap[orbitalKey] = [];
+                }
+                state.orbitalPointsMap[orbitalKey].push(state.pointCount);
+            }
+        }
+        
+        state.pointCount++;
+    }
+    
+    // 添加采样数据
+    for (const sample of result.samples) {
+        state.radialSamples.push(sample.r);
+        state.angularSamples.push(sample.theta);
+        
+        if (sample.orbitalKey) {
+            if (!state.orbitalSamplesMap[sample.orbitalKey]) {
+                state.orbitalSamplesMap[sample.orbitalKey] = [];
+            }
+            state.orbitalSamplesMap[sample.orbitalKey].push({
+                r: sample.r,
+                theta: sample.theta,
+                probability: 0 // Worker 中已计算过
+            });
+        }
+    }
+    
+    // 更新最远距离
+    if (result.farthestDistance > state.farthestDistance) {
+        state.farthestDistance = result.farthestDistance;
+        state.samplingBoundary = Math.max(state.samplingBoundary, state.farthestDistance * 1.05);
+    }
+    
+    // 更新几何体
+    state.points.geometry.setDrawRange(0, state.pointCount);
+    state.points.geometry.attributes.position.needsUpdate = true;
+    if (colorsAttr) colorsAttr.needsUpdate = true;
+    
+    // 更新计数显示
+    const ui_pointCountSpan = window.ElectronCloud.ui.pointCountSpan;
+    if (ui_pointCountSpan) {
+        ui_pointCountSpan.textContent = state.pointCount;
+    }
+};
+
+// 处理任务队列中的下一个任务
+window.ElectronCloud.Sampling.processNextTask = function() {
+    if (pendingTasks.length === 0) return;
+    
+    // 找到空闲的 Worker
+    const availableWorker = workerPool.find(w => !w.busy);
+    if (!availableWorker) return;
+    
+    const task = pendingTasks.shift();
+    availableWorker.busy = true;
+    activeTasks++;
+    availableWorker.postMessage(task);
+};
+
+// 提交采样任务到 Worker 池
+window.ElectronCloud.Sampling.submitSamplingTask = function() {
+    const state = window.ElectronCloud.state;
+    const ui = window.ElectronCloud.ui;
+    const constants = window.ElectronCloud.constants;
+    
+    if (state.pointCount >= state.MAX_POINTS) return;
+    
+    // 检查是否有空闲 Worker
+    const availableWorkers = workerPool.filter(w => !w.busy);
+    if (availableWorkers.length === 0) return;
+    
+    const isCompareMode = ui.compareToggle && ui.compareToggle.checked;
+    const isMultiselectMode = ui.multiselectToggle && ui.multiselectToggle.checked;
+    const phaseOn = document.getElementById('phase-toggle')?.checked || false;
+    
+    // 准备比照颜色（只传递值，不传递对象）
+    const compareColors = constants.compareColors ? 
+        constants.compareColors.map(c => c.value) : [];
+    
+    const taskId = ++taskIdCounter;
+    // 每个 Worker 处理更多的尝试次数，充分利用 CPU
+    const totalAttempts = window.ElectronCloud.Sampling.getAttemptsPerFrame();
+    const attemptsPerWorker = Math.ceil(totalAttempts / availableWorkers.length);
+    const pointsPerWorker = Math.ceil(state.pointsPerFrame / availableWorkers.length);
+    
+    // 为每个空闲 Worker 分配任务
+    for (let i = 0; i < availableWorkers.length; i++) {
+        const worker = availableWorkers[i];
+        const task = {
+            type: 'sample',
+            taskId: taskId + i,
+            data: {
+                orbitals: state.currentOrbitals,
+                samplingBoundary: state.samplingBoundary,
+                maxAttempts: attemptsPerWorker,
+                targetPoints: pointsPerWorker,
+                isIndependentMode: isCompareMode || isMultiselectMode,
+                isMultiselectMode: isMultiselectMode,
+                phaseOn: phaseOn,
+                compareColors: compareColors
+            }
+        };
+        
+        worker.busy = true;
+        activeTasks++;
+        worker.postMessage(task);
+    }
+};
+
+// 终止所有 Worker
+window.ElectronCloud.Sampling.terminateWorkers = function() {
+    workerPool.forEach(w => w.terminate());
+    workerPool.length = 0;
+    workerReady = 0;
+    pendingTasks = [];
+    workersInitialized = false;
+    activeTasks = 0;
+};
+
+// 检查是否使用 Worker
+window.ElectronCloud.Sampling.isUsingWorkers = function() {
+    return useWorkers && workerReady > 0;
+};
+
+// ==================== 原有采样逻辑（作为降级方案）====================
+
 // 更新点的位置（主要采样逻辑）
 window.ElectronCloud.Sampling.updatePoints = function() {
     const state = window.ElectronCloud.state;

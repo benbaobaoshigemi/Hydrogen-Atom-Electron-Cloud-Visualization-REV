@@ -266,7 +266,13 @@ window.ElectronCloud.Scene.animate = function() {
     // 如果正在绘制，则更新点
     if (state.isDrawing) {
         if (state.pointCount < state.MAX_POINTS) {
-            window.ElectronCloud.Sampling.updatePoints();
+            // 优先使用 Web Worker 并行采样（如果可用）
+            if (window.ElectronCloud.Sampling.isUsingWorkers && window.ElectronCloud.Sampling.isUsingWorkers()) {
+                window.ElectronCloud.Sampling.submitSamplingTask();
+            } else {
+                // 降级到主线程采样
+                window.ElectronCloud.Sampling.updatePoints();
+            }
             
             // 图表刷新：每秒刷新一次（1000ms），跳过第一秒
             const now = performance.now();

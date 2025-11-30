@@ -101,6 +101,11 @@ window.ElectronCloud.ui = {
 
 // 初始化函数
 window.ElectronCloud.init = function() {
+    // 初始化 Web Worker 池（用于并行采样加速）
+    if (window.ElectronCloud.Sampling.initWorkers) {
+        window.ElectronCloud.Sampling.initWorkers();
+    }
+    
     // 初始化场景
     window.ElectronCloud.Scene.init();
     
