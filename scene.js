@@ -600,6 +600,80 @@ window.ElectronCloud.Scene.clearAngularOverlay = function() {
     }
 };
 
+// 【根本修复】统一重置所有场景对象的旋转状态
+// 这是解决"坐标歪斜"问题的关键函数
+// 问题根本原因：points、customAxes、angularOverlay 三个对象的旋转状态可能不同步
+// 当新建点云时，旧的坐标轴可能保持之前的旋转角度，导致不对齐
+window.ElectronCloud.Scene.resetAllSceneObjectsRotation = function() {
+    const state = window.ElectronCloud.state;
+    
+    console.log('【统一旋转重置】重置所有场景对象的旋转状态');
+    
+    // 重置点云旋转
+    if (state.points) {
+        state.points.rotation.set(0, 0, 0);
+        state.points.updateMatrix();
+        state.points.updateMatrixWorld(true);
+    }
+    
+    // 重置角向叠加层旋转
+    if (state.angularOverlay) {
+        state.angularOverlay.rotation.set(0, 0, 0);
+        state.angularOverlay.updateMatrix();
+        state.angularOverlay.updateMatrixWorld(true);
+    }
+    
+    // 重置坐标轴旋转
+    if (state.customAxes) {
+        state.customAxes.rotation.set(0, 0, 0);
+        state.customAxes.updateMatrix();
+        state.customAxes.updateMatrixWorld(true);
+    }
+    
+    // 重置旋转轴辅助线（如果存在）
+    if (state.autoRotate && state.autoRotate.axisHelper) {
+        state.scene.remove(state.autoRotate.axisHelper);
+        state.autoRotate.axisHelper.geometry.dispose();
+        state.autoRotate.axisHelper.material.dispose();
+        state.autoRotate.axisHelper = null;
+    }
+    
+    // 重置自动旋转累计角度
+    if (state.autoRotate) {
+        state.autoRotate.totalAngle = 0;
+    }
+    
+    // 如果有锁定视角，清除锁定状态
+    if (state.lockedAxis) {
+        state.lockedAxis = null;
+        // 恢复OrbitControls
+        if (state.controls) {
+            state.controls.enabled = true;
+            state.controls.enableRotate = true;
+            state.controls.enableZoom = true;
+            state.controls.enablePan = true;
+            state.controls.minAzimuthAngle = -Infinity;
+            state.controls.maxAzimuthAngle = Infinity;
+            state.controls.minPolarAngle = 0;
+            state.controls.maxPolarAngle = Math.PI;
+        }
+        // 恢复相机默认up向量
+        if (state.camera) {
+            state.camera.up.set(0, 1, 0);
+        }
+        // 恢复所有坐标轴的可见性
+        if (window.ElectronCloud.Scene.resetAxesVisibility) {
+            window.ElectronCloud.Scene.resetAxesVisibility();
+        }
+        // 清除锁定轴旋转处理器
+        if (window.ElectronCloud.UI.clearLockedAxisRotation) {
+            window.ElectronCloud.UI.clearLockedAxisRotation();
+        }
+    }
+    
+    console.log('【统一旋转重置】完成');
+};
+
 // 生成圆形点的 sprite 纹理（带缓存）
 let _circleSpriteCached = null;
 window.ElectronCloud.Scene.generateCircleSprite = function() {

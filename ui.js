@@ -504,40 +504,12 @@ window.ElectronCloud.UI.init = function() {
                 // 互斥逻辑：锁定视角时禁用自动旋转
                 window.ElectronCloud.UI.updateRotationLockMutualExclusion();
             } else {
-                // 解锁 - 恢复控制器并清除锁定状态
-                window.ElectronCloud.UI.clearLockedAxisRotation();
-                
-                // 重置所有场景对象的旋转到初始状态
-                if (state.points) {
-                    state.points.rotation.set(0, 0, 0);
-                    state.points.updateMatrix();
-                }
-                if (state.angularOverlay) {
-                    state.angularOverlay.rotation.set(0, 0, 0);
-                    state.angularOverlay.updateMatrix();
-                }
-                if (state.customAxes) {
-                    state.customAxes.rotation.set(0, 0, 0);
-                    state.customAxes.updateMatrix();
+                // 解锁 - 使用统一的旋转重置函数
+                // 这是解决"坐标歪斜"问题的关键：确保解锁时所有对象旋转同步归零
+                if (window.ElectronCloud.Scene.resetAllSceneObjectsRotation) {
+                    window.ElectronCloud.Scene.resetAllSceneObjectsRotation();
                 }
                 
-                // 恢复所有坐标轴的可见性
-                if (window.ElectronCloud.Scene.resetAxesVisibility) {
-                    window.ElectronCloud.Scene.resetAxesVisibility();
-                }
-                
-                state.controls.enabled = true;
-                state.controls.enableRotate = true;  // 恢复旋转
-                state.controls.enableZoom = true;
-                state.controls.enablePan = true;
-                state.lockedAxis = null;
-                // 恢复默认up向量
-                state.camera.up.set(0, 1, 0);
-                // 恢复无限制的旋转角度
-                state.controls.minAzimuthAngle = -Infinity;
-                state.controls.maxAzimuthAngle = Infinity;
-                state.controls.minPolarAngle = 0;
-                state.controls.maxPolarAngle = Math.PI;
                 // 解除锁定时更新互斥状态
                 window.ElectronCloud.UI.updateRotationLockMutualExclusion();
             }
@@ -575,18 +547,27 @@ window.ElectronCloud.UI.lockCameraToAxis = function(axis) {
     // 清除之前的自定义旋转处理
     window.ElectronCloud.UI.clearLockedAxisRotation();
     
+    // 【根本修复】使用统一的旋转重置函数（但不触发完整的锁定清除逻辑）
     // 重置所有场景对象的旋转到初始状态（清除之前锁定轴旋转累积的旋转）
     if (state.points) {
         state.points.rotation.set(0, 0, 0);
         state.points.updateMatrix();
+        state.points.updateMatrixWorld(true);
     }
     if (state.angularOverlay) {
         state.angularOverlay.rotation.set(0, 0, 0);
         state.angularOverlay.updateMatrix();
+        state.angularOverlay.updateMatrixWorld(true);
     }
     if (state.customAxes) {
         state.customAxes.rotation.set(0, 0, 0);
         state.customAxes.updateMatrix();
+        state.customAxes.updateMatrixWorld(true);
+    }
+    
+    // 重置自动旋转累计角度
+    if (state.autoRotate) {
+        state.autoRotate.totalAngle = 0;
     }
     
     // 重置所有轴的可见性，然后隐藏被锁定的轴

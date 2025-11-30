@@ -86,6 +86,13 @@ window.ElectronCloud.Orbital.startDrawing = function() {
     state.points = new THREE.Points(geometry, material);
     state.scene.add(state.points);
     
+    // 【根本修复】统一重置所有场景对象的旋转状态
+    // 这是解决"坐标歪斜"问题的关键步骤
+    // 确保新的点云与坐标轴、角向叠加层三者旋转同步（都归零）
+    if (window.ElectronCloud.Scene.resetAllSceneObjectsRotation) {
+        window.ElectronCloud.Scene.resetAllSceneObjectsRotation();
+    }
+    
     // 【关键修复】渲染开始前，强制重置自动旋转状态，避免坐标轴偏移
     if (state.autoRotate) {
         state.autoRotate.enabled = false;
@@ -106,6 +113,12 @@ window.ElectronCloud.Orbital.startDrawing = function() {
         const recordBtn = document.getElementById('record-rotation-btn');
         if (recordBtn) recordBtn.disabled = true;
     }
+    
+    // 重置锁定视角的UI状态
+    const lockButtons = document.querySelectorAll('.lock-axis-btn');
+    lockButtons.forEach(btn => {
+        btn.classList.remove('active', 'green');
+    });
 
     // 开始绘制
     state.isDrawing = true;
@@ -164,6 +177,12 @@ window.ElectronCloud.Orbital.clearDrawing = function() {
 
     if (state.animationFrameId) {
         cancelAnimationFrame(state.animationFrameId);
+    }
+
+    // 【根本修复】统一重置所有场景对象的旋转状态
+    // 确保重置后坐标轴、点云（即将清除）、角向叠加层旋转归零
+    if (window.ElectronCloud.Scene.resetAllSceneObjectsRotation) {
+        window.ElectronCloud.Scene.resetAllSceneObjectsRotation();
     }
 
     // 清除点云
@@ -225,6 +244,11 @@ window.ElectronCloud.Orbital.clearDrawing = function() {
         rotationFeatureBox.classList.remove('active');
     }
     
+    // 重置锁定视角的UI状态
+    const lockButtons = document.querySelectorAll('.lock-axis-btn');
+    lockButtons.forEach(btn => {
+        btn.classList.remove('active', 'green');
+    });
     // 更新自动旋转按钮状态（重置后禁用）
     window.ElectronCloud.UI.updateAutoRotateButtonState();
 };

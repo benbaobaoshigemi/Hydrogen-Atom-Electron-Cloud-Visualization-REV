@@ -1,5 +1,81 @@
 # 坐标轴功能更新总结 (最终修正版)
 
+## 【根本性修复】坐标歪斜问题彻底解决
+
+### 问题根本原因分析
+
+**为什么坐标会歪斜？**
+
+在 Three.js 场景中，存在三个需要同步变换的对象：
+1. `state.points` - 点云（电子云）
+2. `state.customAxes` - 坐标轴
+3. `state.angularOverlay` - 角向分布叠加层
+
+**问题本质**：这三个对象的旋转状态可能在某些操作后变得不同步。
+
+**典型场景**：
+- 用户启用自动旋转，三个对象一起旋转
+- 用户点击"启动"渲染新轨道
+- 代码创建新的 `state.points` 对象（旋转为0）
+- 但 `state.customAxes` 保持之前的旋转角度
+- 结果：坐标轴和点云不对齐 → **坐标歪斜**
+
+### 解决方案：统一旋转状态管理
+
+**创建核心函数** `resetAllSceneObjectsRotation()`：
+- 统一重置所有场景对象的旋转状态
+- 处理锁定视角的清除
+- 重置自动旋转累计角度
+- 恢复 OrbitControls 和相机状态
+
+**调用时机**（确保一致性）：
+1. `startDrawing()` - 开始渲染前
+2. `clearDrawing()` - 重置时
+3. 解锁视角时
+
+### 修改详情
+
+#### scene.js
+```javascript
+// 新增函数：统一重置所有场景对象的旋转状态
+window.ElectronCloud.Scene.resetAllSceneObjectsRotation = function() {
+    // 重置 points、angularOverlay、customAxes 的旋转
+    // 清除旋转轴辅助线
+    // 重置自动旋转累计角度
+    // 如果有锁定视角，清除锁定状态并恢复控制器
+};
+```
+
+#### orbital.js
+```javascript
+// startDrawing() 中新增调用：
+if (window.ElectronCloud.Scene.resetAllSceneObjectsRotation) {
+    window.ElectronCloud.Scene.resetAllSceneObjectsRotation();
+}
+
+// clearDrawing() 中新增调用：
+if (window.ElectronCloud.Scene.resetAllSceneObjectsRotation) {
+    window.ElectronCloud.Scene.resetAllSceneObjectsRotation();
+}
+```
+
+#### ui.js
+```javascript
+// 解锁视角时使用统一函数：
+if (window.ElectronCloud.Scene.resetAllSceneObjectsRotation) {
+    window.ElectronCloud.Scene.resetAllSceneObjectsRotation();
+}
+```
+
+### 为什么这是根本性修复？
+
+1. **单一职责**：所有旋转重置逻辑集中在一个函数中
+2. **一致性保证**：无论从哪个入口触发，都使用相同的重置逻辑
+3. **易于维护**：未来添加新的需要同步旋转的对象，只需修改一处
+4. **避免遗漏**：之前的问题是分散在各处的重置代码不完整
+
+---
+
 ## 修复的重要问题
 
 ### 问题1：重置时坐标轴显示不正确 ✅
