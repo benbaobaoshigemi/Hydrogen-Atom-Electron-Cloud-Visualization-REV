@@ -1,0 +1,1664 @@
+body {
+    margin: 0;
+    overflow: hidden;
+    background-color: #000000;
+    color: #ffffff;
+    font-family: sans-serif;
+    font-size: 13px;
+}
+
+#container {
+    width: 100vw;
+    height: 100vh;
+}
+
+#app-fullscreen-btn {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    z-index: 1000;
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    background-color: rgba(40, 40, 40, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff;
+    font-size: 20px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#app-fullscreen-btn:hover {
+    background-color: rgba(60, 60, 60, 0.9);
+    transform: scale(1.05);
+}
+
+#app-fullscreen-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+#gesture-control-btn {
+    position: absolute;
+    top: 20px;
+    left: 70px;
+    z-index: 1000;
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    background-color: rgba(40, 40, 40, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff;
+    font-size: 20px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#gesture-control-btn:hover {
+    background-color: rgba(60, 60, 60, 0.9);
+    transform: scale(1.05);
+}
+
+#gesture-control-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* 手势控制激活状态 */
+#gesture-control-btn.gesture-active {
+    background-color: rgba(0, 180, 0, 0.8);
+    border-color: rgba(0, 255, 0, 0.5);
+    animation: pulse-green 1.5s infinite;
+}
+
+#gesture-control-btn.gesture-active:hover {
+    background-color: rgba(180, 0, 0, 0.8);
+    border-color: rgba(255, 0, 0, 0.5);
+}
+
+@keyframes pulse-green {
+    0%, 100% {
+        box-shadow: 0 0 5px rgba(0, 255, 0, 0.5);
+    }
+    50% {
+        box-shadow: 0 0 15px rgba(0, 255, 0, 0.8);
+    }
+}
+
+.panel {
+    position: absolute;
+    bottom: 20px;
+    background: linear-gradient(135deg, rgba(25, 25, 25, 0.4) 0%, rgba(15, 15, 15, 0.45) 100%);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    padding: 18px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 
+        0 8px 32px rgba(0, 0, 0, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1),
+        0 0 20px rgba(100, 150, 255, 0.08),
+        0 0 40px rgba(100, 150, 255, 0.04);
+    width: 280px;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-sizing: border-box; /* 确保宽度包含 padding 和 border */
+}
+
+.panel .panel-content {
+    padding: 18px;
+}
+
+/* panel-tab 仅在面板滑出时可见 */
+.panel .panel-tab {
+    display: none;
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    background: linear-gradient(135deg, rgba(25, 25, 25, 0.95) 0%, rgba(15, 15, 15, 0.98) 100%);
+    padding: 12px 8px;
+    cursor: pointer;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: all 0.2s ease;
+    color: rgba(255, 255, 255, 0.8);
+    z-index: 10;
+}
+
+.panel .panel-tab:hover {
+    background: linear-gradient(135deg, rgba(35, 35, 35, 0.98) 0%, rgba(25, 25, 25, 1) 100%);
+    color: #ffffff;
+}
+
+/* 面板滑出时显示 tab 标签 */
+.panel.collapsed .panel-tab {
+    display: block;
+}
+
+#control-panel {
+    left: 20px;
+    padding: 0;
+    max-height: calc(100vh - 40px);
+    display: flex;
+    flex-direction: column;
+}
+
+#control-panel .panel-tab {
+    right: -45px;
+    border-radius: 0 8px 8px 0;
+    border-left: none;
+}
+
+#control-panel .panel-tab:hover {
+    right: -48px;
+}
+
+#control-panel.collapsed {
+    transform: translateX(calc(-100% - 20px));
+}
+
+#control-panel .panel-content {
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+#control-panel h3 {
+    flex-shrink: 0;
+}
+
+.panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+/* 优化控制面板滚动条样式 */
+.panel-body::-webkit-scrollbar {
+    width: 6px;
+}
+
+.panel-body::-webkit-scrollbar-track {
+    background: rgba(10, 10, 10, 0.6);
+    border-radius: 3px;
+}
+
+.panel-body::-webkit-scrollbar-thumb {
+    background: rgba(100, 100, 100, 0.7);
+    border-radius: 3px;
+}
+
+.panel-body::-webkit-scrollbar-thumb:hover {
+    background: rgba(120, 120, 120, 0.9);
+}
+
+/* 响应式设计：小屏幕优化 */
+@media (max-height: 600px) {
+    #control-panel {
+        max-height: calc(100vh - 20px); /* 小屏幕时减少边距 */
+        top: 10px;
+    }
+    
+    .control-group {
+        margin-bottom: 10px; /* 减少间距 */
+    }
+    
+    h3 {
+        margin-bottom: 12px; /* 减少标题间距 */
+        font-size: 1.1em;
+    }
+}
+
+@media (max-height: 480px) {
+    #control-panel {
+        padding: 12px; /* 进一步减少内边距 */
+    }
+    
+    .control-group {
+        margin-bottom: 8px;
+    }
+    
+    h3 {
+        margin-bottom: 10px;
+        font-size: 1em;
+    }
+}
+
+.panel:hover {
+    border-color: rgba(255, 255, 255, 0.15);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+@keyframes slideInLeft {
+    from {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+#data-panel {
+    right: 20px;
+    bottom: 20px;
+    top: auto;
+    padding: 0;
+}
+
+#data-panel .panel-tab {
+    left: -45px;
+    border-radius: 8px 0 0 8px;
+    border-right: none;
+}
+
+#data-panel .panel-tab:hover {
+    left: -48px;
+}
+
+#data-panel.collapsed {
+    transform: translateX(calc(100% + 20px));
+}
+
+@keyframes slideInRight {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+.panel-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.panel-header button {
+    width: 32px;
+    height: 30px;
+    line-height: 28px;
+    text-align: center;
+    padding: 0;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 6px;
+    background-color: rgba(40, 40, 40, 0.9) !important;
+    transition: all 0.2s ease;
+}
+
+.panel-header button:hover {
+    background-color: rgba(55, 55, 55, 1) !important;
+    transform: translateY(-1px);
+}
+
+.panel-body {
+    margin-top: 12px;
+}
+
+h3 {
+    margin-top: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+    padding-bottom: 12px;
+    margin-bottom: 0px;
+    font-weight: 700;
+    font-size: 1.2em;
+    letter-spacing: 0.5px;
+}
+
+.control-group {
+    margin-bottom: 0px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 0;
+}
+
+.action-buttons {
+    justify-content: flex-start;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.action-buttons button {
+    min-width: 60px;
+    font-size: 1em; /* 增大按钮字体 */
+}
+
+label {
+    margin-right: 12px;
+    flex-shrink: 0;
+    font-size: 14px;
+    font-weight: 600;
+    opacity: 0.95;
+}
+
+select, input[type="checkbox"], button {
+    background-color: rgba(25, 25, 25, 0.95) !important;
+    color: #e8e8e8 !important;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 1em; /* 增大字体 */
+}
+
+select:hover, input[type="checkbox"]:hover, button:hover {
+    background-color: rgba(35, 35, 35, 1) !important;
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+select:focus, input:focus, button:focus {
+    outline: none;
+    border-color: rgba(255, 255, 255, 0.3);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.1);
+}
+
+/* 带 size 属性的 select 元素（列表样式） */
+.control-group select[size] {
+    width: 100%; /* 占满容器宽度 */
+    max-width: 200px; /* 限制最大宽度 */
+    background-color: rgba(20, 20, 20, 0.95) !important;
+    padding: 6px;
+    height: auto;
+    min-height: 60px;
+    max-height: 100px;
+    overflow-y: auto;
+    text-align: center;
+    appearance: listbox;
+    -webkit-appearance: listbox;
+}
+
+.control-group select[multiple]{
+    width: 100%; /* 占满容器宽度 */
+    max-width: 200px; /* 限制最大宽度 */
+    background-color: rgba(20, 20, 20, 0.95) !important;
+    padding: 6px;
+    height: 100px; /* 压缩高度到原来一半 */
+    overflow-y: auto;
+    text-align: left; /* 列表模式下左对齐 */
+    appearance: listbox; /* 恢复列表外观 */
+    -webkit-appearance: listbox;
+}
+
+/* 自定义滚动条样式 */
+.control-group select[multiple]::-webkit-scrollbar {
+    width: 8px;
+}
+
+.control-group select[multiple]::-webkit-scrollbar-track {
+    background: rgba(10, 10, 10, 0.8);
+    border-radius: 4px;
+}
+
+.control-group select[multiple]::-webkit-scrollbar-thumb {
+    background: rgba(100, 100, 100, 0.8);
+    border-radius: 4px;
+    border: 1px solid rgba(60, 60, 60, 0.5);
+}
+
+.control-group select[multiple]::-webkit-scrollbar-thumb:hover {
+    background: rgba(120, 120, 120, 0.9);
+}
+
+/* Firefox滚动条样式 */
+.control-group select[multiple] {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(100, 100, 100, 0.8) rgba(10, 10, 10, 0.8);
+}
+
+/* 全局滚动条样式 */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: rgba(10, 10, 10, 0.8);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(100, 100, 100, 0.8);
+    border-radius: 4px;
+    border: 1px solid rgba(60, 60, 60, 0.5);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(120, 120, 120, 0.9);
+}
+
+/* 修复选择框选项的样式 */
+select option {
+    background-color: rgba(20, 20, 20, 0.98) !important;
+    color: #e8e8e8 !important;
+    padding: 3px 5px;
+    margin-right: 5px;
+    border-radius: 5px;
+}
+
+select option:hover {
+    background-color: rgba(40, 40, 40, 1) !important;
+    color: #ffffff !important;
+}
+
+/* 普通选择框选中项样式 - 绿色 */
+select option:checked {
+    background: rgba(80, 200, 120, 0.35) !important;
+    color: rgba(120, 220, 150, 1) !important;
+}
+
+button {
+    padding: 6px 12px;
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 0.3px;
+    background-color: rgba(30, 30, 30, 0.95) !important;
+}
+
+button:hover {
+    background-color: rgba(45, 45, 45, 1) !important;
+}
+
+button:active {
+    transform: translateY(1px);
+    background-color: rgba(25, 25, 25, 1) !important;
+}
+
+input[type="range"] {
+    flex-grow: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 3px;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.1) 100%);
+    outline: none;
+    transition: all 0.2s ease;
+    border: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(200, 200, 200, 1) 100%);
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+    transform: scale(1.1);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 1) 0%, rgba(220, 220, 220, 1) 100%);
+}
+
+input[type="range"]::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(200, 200, 200, 1) 100%);
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* 亮度滑条容器样式 */
+.brightness-control {
+    flex-direction: column;
+    align-items: flex-start !important;
+}
+
+.brightness-control label {
+    margin-bottom: 6px;
+}
+
+.brightness-slider-container {
+    position: relative;
+    width: 100%;
+    display: flex;
+    align-items: center;
+}
+
+.brightness-slider-container input[type="range"] {
+    width: 100%;
+    margin: 0;
+    /* 左边普通亮度，右边80%后更亮代表辉光区 */
+    background: linear-gradient(90deg, 
+        rgba(255, 255, 255, 0.2) 0%, 
+        rgba(255, 255, 255, 0.2) 80%, 
+        rgba(255, 255, 255, 0.5) 80%, 
+        rgba(255, 255, 255, 0.5) 100%) !important;
+}
+
+/* 隐藏亮度标记线 */
+.brightness-marker {
+    display: none;
+}
+
+/* 拖动句柄样式 */
+#data-panel-resize-handle {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 12px;
+    height: 12px;
+    cursor: nw-resize;
+    z-index: 20;
+    /* 视觉指示器 */
+    border-top: 2px solid rgba(255,255,255,0.5);
+    border-left: 2px solid rgba(255,255,255,0.5);
+    border-top-left-radius: 12px; /* 与面板圆角对齐 */
+    margin: 0;
+    display: none; /* 默认隐藏 */
+    transition: border-color 0.2s;
+}
+
+#data-panel-resize-handle:hover {
+    border-color: rgba(255,255,255,0.8);
+}
+
+/* 仅在 enlarged 模式下显示拖动句柄 */
+#data-panel.enlarged #data-panel-resize-handle {
+    display: block;
+}
+
+.chart-container {
+    width: 100%;
+    height: 200px;
+    margin-top: 12px;
+    border-radius: 8px;
+    background-color: rgba(10, 10, 10, 0.8) !important;
+    padding: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    transition: all 0.3s ease; /* 添加平滑过渡效果 */
+    box-sizing: border-box;
+}
+
+/* 在拖动调整大小时，禁用过渡效果以保证流畅 */
+#data-panel.resizing,
+#data-panel.resizing .chart-container {
+    transition: none !important;
+}
+
+canvas#probability-chart {
+    background-color: transparent !important;
+    border-radius: 6px;
+    border: none;
+    width: 100% !important;
+    height: 100% !important;
+    transition: opacity 0.2s ease; /* 图表更新时的平滑过渡 */
+}
+
+/* 强制所有canvas元素背景透明 */
+canvas {
+    background-color: transparent !important;
+}
+
+/* 强制Chart.js相关元素背景透明 */
+.chart-container canvas,
+.chart-container .chartjs-render-monitor {
+    background-color: transparent !important;
+}
+
+/* 放大模式 */
+#data-panel.enlarged{ 
+    width: 520px; 
+    background: linear-gradient(135deg, rgba(20, 20, 20, 0.7) 0%, rgba(10, 10, 10, 0.75) 100%);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+}
+
+#data-panel.enlarged .chart-container{ 
+    height: 380px; 
+    background-color: rgba(5, 5, 5, 0.9) !important;
+}
+
+/* 选中项样式 - 单选模式（绿色高亮） */
+.control-group select[size] option:checked,
+.control-group select[size] option.selected-green {
+    background: rgba(80, 200, 120, 0.35) !important;
+    color: rgba(120, 220, 150, 1) !important;
+    font-weight: bold;
+    border-radius: 6px !important;
+}
+
+/* 选中项样式 - 默认模式（绿色高亮） */
+.control-group select[multiple] option:checked {
+    background: rgba(80, 200, 120, 0.25) !important;
+    color: rgba(120, 220, 150, 1) !important;
+    font-weight: bold;
+    position: relative;
+    border-radius: 8px !important;
+    margin: 2px 0 !important;
+    margin-right: 5px !important;
+    border: 1px solid rgba(80, 200, 120, 0.9) !important;
+}
+
+/* 为选中项添加选中标记 */
+.control-group select[multiple] option:checked::before {
+    content: "";
+    color: rgba(120, 220, 150, 1);
+    font-weight: bold;
+    margin-right: 4px;
+}
+
+/* 多选模式下的选中项样式 - 绿色高亮 */
+.multiselect-active .control-group select[multiple] option:checked {
+    background: rgba(80, 200, 120, 0.3) !important;
+    color: rgba(120, 220, 150, 1) !important;
+    border: 1px solid rgba(80, 200, 120, 0.9) !important;
+    border-radius: 8px !important;
+    font-weight: bold !important;
+    font-size: 1.05em !important;
+    margin: 2px 4px !important;
+    padding: 4px 8px !important;
+    box-shadow: 0 0 8px rgba(80, 200, 120, 0.2) inset !important;
+}
+
+/* 多选模式下选中项的before伪元素 */
+.multiselect-active .control-group select[multiple] option:checked::before {
+    content: "✓ " !important;
+    color: rgba(120, 220, 150, 1) !important;
+    font-weight: bold !important;
+    margin-right: 4px !important;
+}
+
+/* 选中动画效果 */
+@keyframes selectPulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.02); }
+    100% { transform: scale(1); }
+}
+
+/* 多选模式下未选中项的hover效果 */
+.multiselect-active .control-group select[multiple] option:not(:checked):hover {
+    background-color: rgba(100, 100, 100, 0.7) !important;
+    color: #ffffff !important;
+    border-radius: 6px !important;
+    margin: 1px 2px !important;
+}
+
+/* 多选模式下选中项的hover效果 - 保持绿色但稍微变亮 */
+.multiselect-active .control-group select[multiple] option:checked:hover {
+    background: rgba(80, 200, 120, 0.4) !important;
+    color: rgba(140, 240, 170, 1) !important;
+    border: 1px solid rgba(80, 200, 120, 1) !important;
+    border-radius: 8px !important;
+    transform: scale(1.02);
+}
+
+/* 强制选中状态的样式 - 绿色 */
+.multiselect-active .control-group select[multiple] option.force-selected {
+    background: rgba(80, 200, 120, 0.3) !important;
+    color: rgba(120, 220, 150, 1) !important;
+    border: 1px solid rgba(80, 200, 120, 0.9) !important;
+    border-radius: 8px !important;
+    font-weight: bold !important;
+    font-size: 1.05em !important;
+    margin: 2px 4px !important;
+    padding: 4px 8px !important;
+    box-shadow: 0 0 8px rgba(80, 200, 120, 0.2) inset !important;
+}
+
+.multiselect-active .control-group select[multiple] option.force-selected::before {
+    content: "✓ " !important;
+    color: rgba(120, 220, 150, 1) !important;
+    font-weight: bold !important;
+    margin-right: 4px !important;
+}
+
+/* 【关键修复】强制未选中状态的样式 - 覆盖:checked伪类的幽灵效果 */
+.multiselect-active .control-group select[multiple] option.force-unselected,
+.multiselect-active .control-group select[multiple] option.force-unselected:checked {
+    background: transparent !important;
+    color: rgba(200, 200, 200, 0.9) !important;
+    border: none !important;
+    font-weight: normal !important;
+    font-size: 1em !important;
+    box-shadow: none !important;
+    margin: 2px 4px !important;
+    padding: 4px 8px !important;
+}
+
+.multiselect-active .control-group select[multiple] option.force-unselected::before,
+.multiselect-active .control-group select[multiple] option.force-unselected:checked::before {
+    content: "" !important;
+}
+
+/* 比照模式下的强制未选中状态 */
+.compare-active .control-group select[multiple] option.force-unselected,
+.compare-active .control-group select[multiple] option.force-unselected:checked {
+    background: transparent !important;
+    color: rgba(200, 200, 200, 0.9) !important;
+    border: none !important;
+    font-weight: normal !important;
+    font-size: 1em !important;
+    box-shadow: none !important;
+}
+
+.compare-active .control-group select[multiple] option.force-unselected::before,
+.compare-active .control-group select[multiple] option.force-unselected:checked::before {
+    content: "" !important;
+}
+
+/* 比照模式下的选中项样式 */
+.compare-active .control-group select[multiple] option:checked {
+    font-weight: bold !important;
+    font-size: 1.05em !important; /* 增大选中项字体 */
+    position: relative;
+    border-radius: 8px !important;
+    margin: 2px 4px !important;
+    padding: 4px 8px !important;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2), inset 0 0 0 1px rgba(255, 255, 255, 0.3) !important;
+}
+
+/* 比照模式下选中项的before伪元素 */
+.compare-active .control-group select[multiple] option:checked::before {
+    content: "● " !important;
+    font-weight: bold !important;
+    margin-right: 4px !important;
+    font-size: 14px !important;
+}
+
+/* 比照模式下不同颜色的圆点 */
+.compare-active .control-group select[multiple] option.compare-color-0:checked::before {
+    color: #ff5555 !important; /* 红色 */
+}
+
+.compare-active .control-group select[multiple] option.compare-color-1:checked::before {
+    color: #55ff55 !important; /* 绿色 */
+}
+
+.compare-active .control-group select[multiple] option.compare-color-2:checked::before {
+    color: #5555ff !important; /* 蓝色 */
+}
+
+/* 比照模式下未选中项的hover效果 */
+.compare-active .control-group select[multiple] option:not(:checked):hover {
+    background-color: rgba(100, 100, 100, 0.7) !important;
+    color: #ffffff !important;
+    border-radius: 6px !important;
+    margin: 1px 2px !important;
+}
+
+/* 比照模式下选中项的hover效果 */
+.compare-active .control-group select[multiple] option:checked:hover {
+    transform: scale(1.02);
+}
+
+/* 禁用的相位开关样式 */
+input[type="checkbox"]:disabled {
+    opacity: 0.5 !important;
+    cursor: not-allowed !important;
+}
+
+input[type="checkbox"]:disabled + label {
+    opacity: 0.5 !important;
+    cursor: not-allowed !important;
+}
+
+/* 检查框自定义样式 */
+input[type="checkbox"] {
+    width: 13px;
+    height: 13px;
+    position: relative;
+}
+
+input[type="checkbox"]:checked {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(220, 220, 220, 1) 100%);
+}
+
+/* 轨道选项的可见性状态样式 */
+select[multiple] option.orbital-hidden {
+    opacity: 0.5 !important;
+    text-decoration: line-through !important;
+}
+
+select[multiple] option.orbital-visible {
+    opacity: 1 !important;
+    text-decoration: none !important;
+}
+
+/* 比照模式下隐藏轨道的样式 - 保持背景色但显示删除线 */
+.compare-active select[multiple] option.orbital-hidden {
+    opacity: 0.6 !important;
+    text-decoration: line-through !important;
+}
+
+/* 渲染完成后的轨道选项hover效果 */
+.compare-active.rendering-completed select[multiple] option:hover {
+    cursor: pointer !important;
+}
+
+/* 统计信息文字样式 */
+.control-group p {
+    margin: 0;
+    font-size: 1em; /* 增大统计信息字体：0.9em -> 1em */
+     /* 增加字重使统计信息更醒目 */
+    opacity: 0.9;
+}
+
+.control-group span {
+    font-weight: 700; /* 增加字重：600 -> 700 */
+    font-size: 1.1em; /* 增大数值字体 */
+    color: #ffffff;
+}
+
+/* 优化下拉选择框样式 */
+.control-group select {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 100%;
+    background-color: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: #e0e0e0;
+    font-size: 13px;
+    outline: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center; /* 让文字居中，看起来更像按钮 */
+}
+
+.control-group select:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.control-group select:focus {
+    border-color: rgba(255, 255, 255, 0.5); /* 聚焦时仅稍微亮一点，不显示蓝色 */
+    background-color: rgba(255, 255, 255, 0.15);
+}
+
+.control-group select option {
+    background-color: #1a1a1a;
+    color: #e0e0e0;
+    padding: 8px;
+}
+
+/* 实验功能按钮样式 */
+#experimental-panel .action-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+#experimental-panel .action-buttons button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px;
+    background-color: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    color: #fff;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+#experimental-panel .action-buttons button:hover:not(:disabled) {
+    background-color: rgba(255, 255, 255, 0.2);
+    transform: translateY(-1px);
+}
+
+#experimental-panel .action-buttons button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* 重置手势按钮样式 (覆盖原来的绝对定位) */
+#gesture-control-btn {
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    z-index: auto !important;
+    font-size: 13px !important;
+}
+
+/* 手势激活状态 */
+#gesture-control-btn.gesture-active {
+    background-color: rgba(0, 180, 0, 0.3) !important;
+    border-color: rgba(0, 255, 0, 0.5) !important;
+    animation: none !important; /* 移除原来的脉冲动画 */
+}
+
+/* 右上角手势状态图标 */
+/* 右上角手势状态图标 */
+#gesture-status-icon {
+    position: absolute;
+    top: 20px;
+    left: 70px; /* 移到全屏图标右侧 (20px + 40px + 10px) */
+    right: auto;
+    z-index: 1000;
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    background-color: rgba(0, 180, 0, 0.8);
+    border: 1px solid rgba(0, 255, 0, 0.5);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
+    animation: pulse-green 2s infinite;
+    cursor: pointer; /* 添加手型光标 */
+    transition: all 0.2s ease;
+}
+
+#gesture-status-icon:hover {
+    transform: scale(1.05);
+    background-color: rgba(180, 0, 0, 0.8); /* 悬停变红，提示可停止 */
+    border-color: rgba(255, 0, 0, 0.5);
+    box-shadow: 0 0 15px rgba(255, 0, 0, 0.5);
+}
+
+@keyframes pulse-green {
+    0%, 100% {
+        box-shadow: 0 0 5px rgba(0, 255, 0, 0.5);
+    }
+    50% {
+        box-shadow: 0 0 15px rgba(0, 255, 0, 0.8);
+    }
+}
+
+/* 实验功能面板 - 与数据面板样式一致 */
+#experimental-panel {
+    top: 80px;
+    right: 20px;
+    bottom: auto;
+    width: 200px;
+    z-index: 1001;
+    padding: 0;
+}
+
+/* 实验面板标签 - 与数据面板一致 */
+#experimental-panel .panel-tab {
+    left: -45px;
+    top: 50%;
+    transform: translateY(-50%);
+    border-radius: 8px 0 0 8px;
+    border-right: none;
+}
+
+#experimental-panel .panel-tab:hover {
+    left: -48px;
+}
+
+/* 收起状态：滑出屏幕 - 与数据面板一致 */
+#experimental-panel.collapsed {
+    transform: translateX(calc(100% + 20px));
+}
+
+/* 实验功能面板内容样式 */
+#experimental-panel .panel-content {
+    padding: 20px;
+}
+
+/* 视图面板 - 在控制面板上方 */
+#view-panel {
+    left: 20px;
+    bottom: auto;
+    top: 80px;
+    width: 280px;
+    padding: 0;
+    z-index: 999;
+}
+
+#view-panel .panel-tab {
+    right: -45px;
+    border-radius: 0 8px 8px 0;
+    border-left: none;
+}
+
+#view-panel .panel-tab:hover {
+    right: -48px;
+}
+
+#view-panel.collapsed {
+    transform: translateX(calc(-100% - 20px));
+}
+
+/* 旋转轴输入框样式 */
+.rotation-axis-inputs {
+    flex-direction: column;
+    align-items: flex-start !important;
+}
+
+.rotation-axis-inputs label {
+    margin-bottom: 6px;
+}
+
+.axis-inputs {
+    display: flex;
+    gap: 6px;
+    width: 100%;
+}
+
+.axis-inputs input[type="number"] {
+    width: 100%;
+    flex: 1;
+    padding: 6px 8px;
+    background-color: rgba(25, 25, 25, 0.95) !important;
+    color: #e8e8e8 !important;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 4px;
+    font-size: 12px;
+    text-align: center;
+}
+
+.axis-inputs input[type="number"]:focus {
+    outline: none;
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* 隐藏number input的spinner */
+.axis-inputs input[type="number"]::-webkit-inner-spin-button,
+.axis-inputs input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.axis-inputs input[type="number"] {
+    -moz-appearance: textfield;
+}
+
+.gesture-popup {
+    position: absolute;
+    top: 20px;
+    right: 70px; /* 调整位置，避开图标 */
+    z-index: 9999; /* 确保最高层级 */
+    background-color: rgba(0, 0, 0, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 20px;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    transition: opacity 0.3s;
+}
+
+.status-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background-color: red;
+    box-shadow: 0 0 5px rgba(255, 0, 0, 0.5);
+}
+
+#gesture-status-text {
+    font-size: 14px;
+    font-weight: bold;
+}
+
+/* 右上角当前点数显示 */
+#point-count-display {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 13px;
+    font-weight: 500;
+    z-index: 1000;
+    pointer-events: none;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+#point-count-display span {
+    color: rgba(255, 255, 255, 0.9);
+    font-weight: 600;
+}
+
+/* 二级子菜单面板 */
+.submenu-panel {
+    position: fixed;
+    background: linear-gradient(135deg, rgba(25, 25, 25, 0.95) 0%, rgba(15, 15, 15, 0.98) 100%);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    z-index: 1100;
+    min-width: 180px;
+    width: 200px;
+    display: none;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.submenu-panel.visible {
+    display: block;
+    opacity: 1;
+}
+
+.submenu-panel.right-side {
+    /* 右侧面板向左展开，由JS动态设置位置 */
+    transform-origin: right center;
+}
+
+.submenu-panel.left-side {
+    /* 左侧面板向右展开，由JS动态设置位置 */
+    transform-origin: left center;
+    width: 220px;
+}
+
+.submenu-header {
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.9);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.submenu-body {
+    padding: 12px 14px;
+    overflow: hidden;
+}
+
+.submenu-body .control-group {
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+
+.submenu-body .control-group:last-child {
+    margin-bottom: 0;
+}
+
+/* 子菜单中的滑条样式 - 确保不溢出 */
+.submenu-body .control-group input[type="range"] {
+    width: 100%;
+    max-width: 100%;
+    margin-top: 6px;
+    box-sizing: border-box;
+}
+
+.submenu-body .control-group label {
+    display: block;
+    width: 100%;
+    margin-bottom: 4px;
+}
+
+.submenu-body select {
+    width: 100%;
+    padding: 6px 8px;
+    background-color: rgba(25, 25, 25, 0.95);
+    color: #e8e8e8;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 4px;
+    font-size: 12px;
+    box-sizing: border-box;
+}
+
+/* 实验功能 - 特性行布局 */
+.feature-row {
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.feature-row:last-of-type {
+    margin-bottom: 0;
+}
+
+/* 左侧设置按钮 */
+.feature-settings-btn {
+    width: 32px;
+    height: 32px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 14px;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.feature-settings-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.feature-settings-btn.active {
+    background: rgba(100, 150, 255, 0.3);
+    border-color: rgba(100, 150, 255, 0.5);
+    color: #fff;
+}
+
+/* 右侧功能框 */
+.feature-box {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    padding: 6px 10px;
+    min-height: 32px;
+    box-sizing: border-box;
+    transition: all 0.2s ease;
+}
+
+/* 可点击的功能框 */
+.feature-box.clickable {
+    cursor: pointer;
+}
+
+.feature-box.clickable:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.feature-box.active {
+    background: rgba(80, 200, 120, 0.25) !important;
+    border-color: rgba(80, 200, 120, 0.6) !important;
+}
+
+.feature-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.feature-box.active .feature-name {
+    color: rgba(120, 220, 150, 1) !important;
+    font-weight: 700;
+}
+
+/* 紧凑型 feature-row（用于视图面板内） */
+.feature-row.compact {
+    margin: 0;
+    padding: 0;
+}
+
+.feature-row.compact .feature-box {
+    cursor: pointer;
+}
+
+.feature-row.compact .feature-box:hover:not([style*="pointer-events: none"]) {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+/* 隐藏 feature-box 内的 checkbox（统一用点击切换） */
+.feature-box input[type="checkbox"] {
+    display: none;
+}
+
+/* 自动旋转行特殊布局 */
+.rotation-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.rotation-row .feature-box.small {
+    flex: 1;
+    min-width: 80px;
+}
+
+.rotation-row .feature-action-btn {
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    color: rgba(255, 255, 255, 0.85);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.rotation-row .feature-action-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.25);
+}
+
+.rotation-row .feature-action-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.rotation-row .feature-action-btn.recording {
+    background: rgba(255, 80, 80, 0.3);
+    border-color: rgba(255, 80, 80, 0.6);
+    color: rgba(255, 120, 120, 1);
+    animation: recording-pulse 1s ease-in-out infinite;
+}
+
+@keyframes recording-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+/* 多选/比照模式切换行 */
+.mode-toggle-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 6px 0;
+}
+
+/* 单个开关框（用于二级菜单） */
+.mode-toggle-row.single {
+    margin-bottom: 6px;
+    padding: 4px 0;
+}
+
+.mode-toggle-row.single .mode-toggle-box {
+    flex: none;
+    width: 100%;
+}
+
+.mode-toggle-box {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    padding: 10px 12px;
+    min-height: 36px;
+    box-sizing: border-box;
+    transition: all 0.2s ease;
+}
+
+.mode-toggle-box.active {
+    background: rgba(80, 200, 120, 0.15);
+    border-color: rgba(80, 200, 120, 0.4);
+}
+
+.mode-name {
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.9);
+    font-weight: 600;
+}
+
+.mode-toggle-box.active .mode-name {
+    color: rgba(120, 220, 150, 1);
+}
+
+/* 隐藏mode-toggle-box中的checkbox小白框，整个框变绿表示选中 */
+.mode-toggle-box input[type="checkbox"] {
+    display: none;
+}
+
+/* mode-toggle-box 禁用状态 */
+.mode-toggle-box.disabled {
+    opacity: 0.5;
+    pointer-events: none;
+    cursor: not-allowed;
+}
+
+/* 功能框内的执行按钮 */
+.feature-action-btn {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    padding: 3px 10px;
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 11px;
+    transition: all 0.2s ease;
+}
+
+.feature-action-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+}
+
+/* 有子菜单的控件组 - 用于视图面板 */
+.has-submenu-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.submenu-trigger-right {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    padding: 4px;
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.7);
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.submenu-trigger-right:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+}
+
+.submenu-trigger-right.active {
+    background: rgba(100, 150, 255, 0.3);
+    border-color: rgba(100, 150, 255, 0.5);
+    color: #fff;
+}
+
+.has-submenu-right label {
+    flex: 1;
+}
+
+.action-btn:hover {
+    background: rgba(100, 150, 255, 0.3);
+    color: #fff;
+}
+
+/* 视角锁定按钮 */
+.view-lock-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.view-lock-btn {
+    flex: 1;
+    min-height: 32px;
+    padding: 6px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(255, 255, 255, 0.05) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    color: rgba(255, 255, 255, 0.85) !important;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+}
+
+.view-lock-btn:hover {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+    color: #fff !important;
+}
+
+.view-lock-btn:disabled {
+    opacity: 0.4 !important;
+    pointer-events: none !important;
+    cursor: not-allowed !important;
+}
+
+.view-lock-btn.active {
+    background-color: rgba(80, 200, 120, 0.25) !important; /* 增强可见性 */
+    border-color: rgba(80, 200, 120, 0.9) !important; /* 更明显的边框 */
+    color: rgba(120, 220, 150, 1) !important; /* 文字颜色 */
+    background-image: none !important; /* 防止背景图或渐变覆盖 */
+    box-shadow: 0 0 8px rgba(80,200,120,0.22) inset, 0 2px 10px rgba(80,200,120,0.12) !important;
+}
+
+/* 强制子元素例如 svg, span 使用相同颜色（防止SVG fill或子元素样式覆盖） */
+.view-lock-btn.active,
+.view-lock-btn.active * {
+    color: rgba(120, 220, 150, 1) !important;
+    fill: rgba(120, 220, 150, 1) !important;
+}
+
+/* 额外高优先级的选择器，覆盖任何其他规则（最保险做法） */
+button.view-lock-btn.active,
+button.view-lock-btn.active * {
+    background-color: rgba(80, 200, 120, 0.25) !important;
+    border-color: rgba(80, 200, 120, 0.9) !important;
+    color: rgba(120, 220, 150, 1) !important;
+    fill: rgba(120, 220, 150, 1) !important;
+}
+
+/* 更高特异性覆盖 (控制面板内的视角锁定按钮) */
+#control-panel .panel-content .view-lock-buttons .view-lock-btn.active,
+#control-panel .panel-content .view-lock-buttons .view-lock-btn.active * {
+    background-color: rgba(80, 200, 120, 0.28) !important; /* 更强的绿色背景 */
+    border-color: rgba(80, 200, 120, 1) !important; /* 实心边框 */
+    color: rgba(120, 220, 150, 1) !important;
+    fill: rgba(120, 220, 150, 1) !important;
+    box-shadow: none !important; /* 与右侧模块保持一致的平滑外观 */
+}
+
+/* 鼠标悬停在激活状态时保持颜色 */
+.view-lock-btn.active:hover,
+#control-panel .panel-content .view-lock-buttons .view-lock-btn.active:hover {
+    background-color: rgba(80, 200, 120, 0.28) !important;
+    color: rgba(120, 220, 150, 1) !important;
+    fill: rgba(120, 220, 150, 1) !important;
+}
+
+/* 对 'green' 类提供额外样式，确保颜色一致 */
+.view-lock-btn.green,
+.view-lock-btn.green * {
+    background-color: rgba(80, 200, 120, 0.28) !important;
+    border-color: rgba(80, 200, 120, 1) !important;
+    color: rgba(120, 220, 150, 1) !important;
+    fill: rgba(120, 220, 150, 1) !important;
+}
+
+#control-panel .panel-content .view-lock-buttons .view-lock-btn.green,
+#control-panel .panel-content .view-lock-buttons .view-lock-btn.green * {
+    background-color: rgba(80, 200, 120, 0.28) !important;
+    border-color: rgba(80, 200, 120, 1) !important;
+    color: rgba(120, 220, 150, 1) !important;
+    fill: rgba(120, 220, 150, 1) !important;
+}
+
+.submenu-body .axis-inputs input[type="number"] {
+    width: 100%;
+    flex: 1;
+    padding: 6px 8px;
+    background-color: rgba(25, 25, 25, 0.95);
+    color: #e8e8e8;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 4px;
+    font-size: 12px;
+    text-align: center;
+}
+
+/* 开关行样式（用于二级菜单中的开关） */
+.control-group.toggle-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.control-group.toggle-row label:first-child {
+    margin-bottom: 0;
+}
+
+/* 通用开关样式 */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 22px;
+    flex-shrink: 0;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 22px;
+    transition: all 0.3s ease;
+}
+
+.toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 16px;
+    width: 16px;
+    left: 2px;
+    bottom: 2px;
+    background-color: rgba(255, 255, 255, 0.7);
+    border-radius: 50%;
+    transition: all 0.3s ease;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+    background-color: rgba(80, 200, 120, 0.4);
+    border-color: rgba(80, 200, 120, 0.6);
+}
+
+.toggle-switch input:checked + .toggle-slider:before {
+    transform: translateX(18px);
+    background-color: rgba(120, 220, 150, 1);
+}
+
+.toggle-switch input:focus + .toggle-slider {
+    box-shadow: 0 0 3px rgba(80, 200, 120, 0.5);
+}
+
+/* 提示文本样式 */
+.control-group.hint-text {
+    padding-top: 0;
+    margin-top: -4px;
+}
+
+.control-group.hint-text span {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.45);
+    font-style: italic;
+}
