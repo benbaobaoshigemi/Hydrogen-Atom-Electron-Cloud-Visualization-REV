@@ -90,7 +90,7 @@ window.ElectronCloud.Scene.init = function() {
         phase: 0,
         baseStrength: 0,
         maxBrightness: 200,
-        mode: 'starry', // 'starry'(默认), 'breath', 'diffuse'(扩散), 'wave'(波浪)
+        mode: 'starry', // 'starry'(默认), 'breath', 'wave'(波浪)
         frequency: 50,     // 0-100，默认50%（中间值）
         starryPhases: null, // 星空模式的随机相位数组
         weightMode: false   // 兼容旧属性
