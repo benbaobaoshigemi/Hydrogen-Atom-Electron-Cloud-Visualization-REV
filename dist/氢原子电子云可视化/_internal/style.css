@@ -276,7 +276,7 @@ body {
     overflow: visible; /* 允许标签和手柄超出面板 */
 }
 
-/* 面板边缘折射效果 - 使用CSS变量实现动态光照方向 */
+/* 面板玻璃边框效果 - 静态高光边框 */
 .panel-content::before {
     content: '';
     position: absolute;
@@ -287,57 +287,18 @@ body {
     border-radius: inherit;
     pointer-events: none;
     z-index: 100;
-    /* 动态折射效果 - 通过JS设置CSS变量控制光照方向 */
-    /* --light-x: 光源水平方向 (0-1, 0=左, 1=右)
-       --light-y: 光源垂直方向 (0-1, 0=上, 1=下)
-       --light-intensity: 光照强度 (0-1) */
-    --light-x: 0.5;
-    --light-y: 0.5;
-    --light-intensity: 0.5;
-    
-    /* 基于光源方向的渐变 - 内侧靠近场景中心的边缘更亮 */
-    background: 
-        /* 使用径向渐变，从四个角落向内衰减，圆角更自然 */
-        radial-gradient(ellipse 100% 100% at 0% 0%, 
-            rgba(255, 255, 255, calc(0.12 * (1 - var(--light-x)) * (1 - var(--light-y)))) 0%,
-            transparent 20px
-        ),
-        radial-gradient(ellipse 100% 100% at 100% 0%, 
-            rgba(255, 255, 255, calc(0.12 * var(--light-x) * (1 - var(--light-y)))) 0%,
-            transparent 20px
-        ),
-        radial-gradient(ellipse 100% 100% at 0% 100%, 
-            rgba(255, 255, 255, calc(0.10 * (1 - var(--light-x)) * var(--light-y))) 0%,
-            transparent 20px
-        ),
-        radial-gradient(ellipse 100% 100% at 100% 100%, 
-            rgba(255, 255, 255, calc(0.10 * var(--light-x) * var(--light-y))) 0%,
-            transparent 20px
-        ),
-        /* 四边折射 - 靠近光源方向的边更亮 */
-        linear-gradient(to bottom, 
-            rgba(255, 255, 255, calc(0.15 * (1 - var(--light-y)) * var(--light-intensity))) 0px,
-            rgba(255, 255, 255, calc(0.08 * (1 - var(--light-y)) * var(--light-intensity))) 6px,
-            transparent 12px
-        ),
-        linear-gradient(to top, 
-            rgba(255, 255, 255, calc(0.12 * var(--light-y) * var(--light-intensity))) 0px,
-            rgba(255, 255, 255, calc(0.06 * var(--light-y) * var(--light-intensity))) 6px,
-            transparent 12px
-        ),
-        linear-gradient(to right, 
-            rgba(255, 255, 255, calc(0.12 * (1 - var(--light-x)) * var(--light-intensity))) 0px,
-            rgba(255, 255, 255, calc(0.06 * (1 - var(--light-x)) * var(--light-intensity))) 6px,
-            transparent 12px
-        ),
-        linear-gradient(to left, 
-            rgba(255, 255, 255, calc(0.12 * var(--light-x) * var(--light-intensity))) 0px,
-            rgba(255, 255, 255, calc(0.06 * var(--light-x) * var(--light-intensity))) 6px,
-            transparent 12px
-        );
-    /* 轻微内阴影增加立体感 */
+    /* 玻璃高光边框 - 顶部和左侧微光，底部和右侧轻微暗边 */
+    border: 1px solid transparent;
+    border-top-color: rgba(255, 255, 255, 0.15);
+    border-left-color: rgba(255, 255, 255, 0.10);
+    border-bottom-color: rgba(0, 0, 0, 0.12);
+    border-right-color: rgba(0, 0, 0, 0.08);
+    /* 内发光 - 模拟玻璃边缘光线折射 */
     box-shadow: 
-        inset 0 0 20px rgba(255, 255, 255, calc(0.03 * var(--light-intensity)));
+        inset 0 1px 0 rgba(255, 255, 255, 0.1),
+        inset 1px 0 0 rgba(255, 255, 255, 0.06),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.06),
+        inset -1px 0 0 rgba(0, 0, 0, 0.04);
 }
 
 /* 收起状态的面板内容隐藏，但不影响标�?*/

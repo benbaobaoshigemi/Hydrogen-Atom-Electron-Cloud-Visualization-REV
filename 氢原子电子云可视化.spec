@@ -5,7 +5,7 @@ a = Analysis(
     ['launcher.py'],
     pathex=[],
     binaries=[],
-    datas=[('index.html', '.'), ('style.css', '.'), ('main.js', '.'), ('core.js', '.'), ('orbital.js', '.'), ('physics.js', '.'), ('sampling.js', '.'), ('sampling-worker.js', '.'), ('scene.js', '.'), ('ui.js', '.'), ('visualization.js', '.'), ('data_panel.js', '.'), ('panel_lighting.js', '.'), ('gesture_v2.js', '.'), ('gesture_config.json', '.')],
+    datas=[('index.html', '.'), ('style.css', '.'), ('main.js', '.'), ('core.js', '.'), ('orbital.js', '.'), ('physics.js', '.'), ('sampling.js', '.'), ('sampling-worker.js', '.'), ('scene.js', '.'), ('ui.js', '.'), ('visualization.js', '.'), ('data_panel.js', '.'), ('gesture_v2.js', '.'), ('gesture_config.json', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

@@ -148,7 +148,6 @@ def build_exe():
         "ui.js",
         "visualization.js",
         "data_panel.js",
-        "panel_lighting.js",
         "gesture_v2.js",
         "gesture_config.json",
     ]
