@@ -103,7 +103,7 @@ window.ElectronCloud.ui = {
     maxPointsSelect: document.getElementById('max-points-select'),
     speedRange: document.getElementById('speed-range'),
     centerLock: document.getElementById('center-lock'),
-    sizeSelect: document.getElementById('size-select'),
+    sizeRange: document.getElementById('size-range'),
     opacityRange: document.getElementById('opacity-range'),
     pauseButton: document.getElementById('pause-button'),
     clearButton: document.getElementById('clear-button'),

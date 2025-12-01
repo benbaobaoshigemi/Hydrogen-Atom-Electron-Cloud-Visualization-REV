@@ -16,7 +16,7 @@
     const dataCollapseBtn = document.getElementById('data-collapse-btn');
     const dataTab = document.getElementById('data-panel-tab');
     const enlargeBtn = document.getElementById('chart-enlarge-btn');
-    const resizeHandle = document.getElementById('data-panel-resize-handle');
+    const resizeHandle = document.getElementById('chart-resize-handle');
     const chartContainer = dataPanel ? dataPanel.querySelector('.chart-container') : null;
     const panelComputedStyle = dataPanel ? window.getComputedStyle(dataPanel) : null;
     const chartComputedStyle = chartContainer ? window.getComputedStyle(chartContainer) : null;
@@ -69,12 +69,44 @@
     }
 
     function updateChartContainerHeight(panelHeight) {
-        if (!chartContainer) {
+        if (!chartContainer || !dataPanel) {
             return;
         }
-        const offset = chartTopOffset || (chartContainer.getBoundingClientRect().top - dataPanel.getBoundingClientRect().top);
-        const computedHeight = panelHeight - offset - panelPaddingBottom - chartMarginBottom;
-        const safeHeight = Math.max(MIN_CHART_HEIGHT, computedHeight);
+        // 重新计算offset，因为面板结构可能已变化
+        const panelContent = dataPanel.querySelector('.panel-content');
+        const panelBody = dataPanel.querySelector('.panel-body');
+        if (!panelContent || !panelBody) return;
+        
+        const panelContentStyle = window.getComputedStyle(panelContent);
+        const panelBodyStyle = window.getComputedStyle(panelBody);
+        const chartStyle = window.getComputedStyle(chartContainer);
+        const contentPadding = parseFloat(panelContentStyle.paddingTop) + parseFloat(panelContentStyle.paddingBottom);
+        const bodyMargin = parseFloat(panelBodyStyle.marginTop) + parseFloat(panelBodyStyle.marginBottom);
+        const chartMargin = parseFloat(chartStyle.marginTop) + parseFloat(chartStyle.marginBottom);
+        
+        // 计算面板头部占用的高度（包括其margin-bottom）
+        const panelHeader = dataPanel.querySelector('.panel-header');
+        let usedHeight = 0;
+        
+        if (panelHeader) {
+            const headerStyle = window.getComputedStyle(panelHeader);
+            usedHeight += panelHeader.getBoundingClientRect().height;
+            usedHeight += parseFloat(headerStyle.marginBottom) || 0;
+        }
+        
+        // 计算其他控件占用的高度
+        const controlGroups = panelBody.querySelectorAll('.control-group');
+        controlGroups.forEach(group => {
+            if (!group.contains(chartContainer)) {
+                usedHeight += group.getBoundingClientRect().height;
+                const groupStyle = window.getComputedStyle(group);
+                usedHeight += parseFloat(groupStyle.marginBottom) || 0;
+            }
+        });
+        
+        // 计算图表容器可用高度
+        const availableHeight = panelHeight - contentPadding - bodyMargin - usedHeight - chartMargin;
+        const safeHeight = Math.max(MIN_CHART_HEIGHT, availableHeight);
         chartContainer.style.height = `${safeHeight}px`;
     }
 
@@ -97,6 +129,11 @@
                 resetPanelSize();
             }
         }
+        
+        // 更新按钮图标：放大时显示向内箭头，缩小时显示向外箭头
+        const isEnlarged = dataPanel.classList.contains('enlarged');
+        enlargeBtn.textContent = isEnlarged ? '⤡' : '⤢';
+        enlargeBtn.title = isEnlarged ? '还原图表' : '放大图表';
       });
     }
 
@@ -123,8 +160,10 @@
             
             const handleTargetX = e.clientX - offsetX;
             const handleTargetY = e.clientY - offsetY;
-            const newWidth = Math.max(300, window.innerWidth - handleTargetX - 20);
-            const rawHeight = window.innerHeight - handleTargetY - 20;
+            // 抓手在面板外24px处，所以面板顶部位置比抓手位置低24px
+            const panelTopY = handleTargetY + 24;
+            const newWidth = Math.max(300, window.innerWidth - handleTargetX - 20 - 24);
+            const rawHeight = window.innerHeight - panelTopY - 20;
             const newHeight = Math.max(minPanelHeight, rawHeight);
             
             dataPanel.style.width = `${newWidth}px`;

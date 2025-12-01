@@ -19,8 +19,11 @@
         </svg>
     </div>
 
-    <!-- 当前点数显示 -->
-    <div id="point-count-display">当前点数 <span id="point-count">0</span></div>
+    <!-- 当前点数显示 - 与全屏按钮样式一致 -->
+    <div id="point-count-display">
+        <span class="label-text">当前点数</span>
+        <span id="point-count">0</span>
+    </div>
 
     <div id="gesture-status-popup" class="gesture-popup" style="display: none; position: fixed; top: 20px; left: 50%; transform: translateX(-50%);">
         <div class="status-indicator"></div>
@@ -52,6 +55,13 @@
                     <button id="export-settings-btn" class="feature-settings-btn" title="导出设置">⚙</button>
                     <div id="export-feature-box" class="feature-box clickable">
                         <span class="feature-name">导出图片</span>
+                    </div>
+                </div>
+                <!-- 权重模式：独立功能，密集区域更亮 -->
+                <div class="feature-row">
+                    <div id="weight-feature-box" class="feature-box clickable full-width">
+                        <span class="feature-name">权重模式</span>
+                        <input type="checkbox" id="weight-mode-toggle" style="display:none" />
                     </div>
                 </div>
                 <div class="control-group action-buttons">
@@ -89,15 +99,6 @@
             <div class="control-group">
                 <label for="heartbeat-max-brightness">最大亮度</label>
                 <input id="heartbeat-max-brightness" type="range" min="100" max="300" step="10" value="200">
-            </div>
-            <div class="mode-toggle-row single">
-                <div class="mode-toggle-box" id="weight-mode-box">
-                    <span class="mode-name">权重模式</span>
-                    <input type="checkbox" id="weight-mode-toggle" />
-                </div>
-            </div>
-            <div class="control-group hint-text">
-                <span>权重模式：密集区域闪烁更亮</span>
             </div>
         </div>
     </div>
@@ -190,12 +191,17 @@
                     <input type="checkbox" id="compare-toggle" />
                 </div>
             </div>
-            <div class="control-group multiselect-controls" style="display: none;">
-                <button id="clear-all-selections" class="clear-selections-btn">清除所有选择</button>
+        <div class="control-group list-container">
+            <label for="orbital-select" id="orbital-select-label">选择轨道</label>
+            <!-- 多选/比照模式下显示的替代标签 -->
+            <div class="multiselect-controls" id="multiselect-label">
+                <span class="label-text">已选:</span>
+                <span class="count-text" id="selection-count-text">0</span>
+                <button id="clear-all-selections" class="clear-selections-btn">清
+空</button>
             </div>
-        <div class="control-group">
-            <label for="orbital-select">选择轨道</label>
-            <select id="orbital-select" size="3">
+            <!-- 原生 select 隐藏，用于逻辑同步 -->
+            <select id="orbital-select" multiple style="display: none;">
                 <!-- n=1 -->
                 <option value="1s" selected>1s</option>
                 <!-- n=2 -->
@@ -257,6 +263,8 @@
                 <option value="5g_xy(x2-y2)">5g(xy(x^2-y^2))</option>
                 <option value="5g_x4-6x2y2+y4">5g(x^4-6x^2y^2+y^4)</option>
             </select>
+            <!-- 自定义轨道列表容器 -->
+            <div id="custom-orbital-list" class="glass-list"></div>
         </div>
         <!-- 渲染相位/固定至中心 并排放置，使用变绿样式 -->
         <div class="mode-toggle-row">
@@ -272,14 +280,10 @@
         <div class="control-group">
             <label for="max-points-select">最大点数</label>
             <select id="max-points-select">
-                <option value="6000">6,000</option>
-                <option value="12000">12,000</option>
-                <option value="24000">24,000</option>
-                <option value="48000" selected>48,000</option>
-                <option value="100000">100,000</option>
+                <option value="20000">20,000</option>
+                <option value="80000" selected>80,000</option>
                 <option value="200000">200,000</option>
-                <option value="400000">400,000</option>
-                <option value="800000">800,000</option>
+                <option value="500000">500,000</option>
                 <option value="1000000">1,000,000</option>
             </select>
         </div>
@@ -292,18 +296,13 @@
             <input id="speed-range" type="range" min="20000" max="800000" step="1000" value="500000">
         </div>
         <div class="control-group">
-            <label for="size-select">点的大小</label>
-            <select id="size-select">
-                <option value="small">小</option>
-                <option value="medium" selected>中</option>
-                <option value="large">大</option>
-            </select>
+            <label for="size-range">点的大小</label>
+            <input id="size-range" type="range" min="1" max="200" step="1" value="50" title="调整点的大小">
         </div>
         <div class="control-group brightness-control">
             <label for="opacity-range">亮度</label>
             <div class="brightness-slider-container">
-                <input id="opacity-range" type="range" min="0" max="100" step="1" value="80">
-                <div class="brightness-marker" title="80%：辉光起点"></div>
+                <input id="opacity-range" type="range" min="0" max="100" step="1" value="67" title="前50%透明度，后50%辉光">
             </div>
         </div>
         <div class="control-group action-buttons">
@@ -316,7 +315,8 @@
     </div>
 
     <div id="data-panel" class="panel">
-        <div id="data-panel-resize-handle" title="拖动改变大小"></div>
+        <!-- 内置resize手柄 - 在面板左上角 -->
+        <div id="chart-resize-handle" title="拖动调整大小"></div>
         <div class="panel-tab" id="data-panel-tab" title="点击展开数据面板">数据 ▸</div>
         <div class="panel-content">
             <div class="panel-header">

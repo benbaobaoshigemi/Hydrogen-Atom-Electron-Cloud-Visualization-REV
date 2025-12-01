@@ -22,11 +22,14 @@
     --color-text-muted: rgba(255, 255, 255, 0.6);
     --color-text-hint: rgba(255, 255, 255, 0.45);
     
-    /* 激活状态 - 绿色主题 */
-    --color-active-bg: rgba(80, 200, 120, 0.25);
-    --color-active-border: rgba(80, 200, 120, 0.6);
-    --color-active-text: rgba(120, 220, 150, 1);
-    --color-active-glow: rgba(80, 200, 120, 0.15);
+    /* ===== 激活状态 - 绿色主题（全局统一） ===== */
+    --color-active-bg: rgba(0, 180, 0, 0.25);
+    --color-active-border: rgba(0, 255, 0, 0.5);
+    --color-active-text: #ffffff;
+    --color-active-glow: rgba(0, 255, 0, 0.15);
+    /* 激活状态 - 实心绿色（用于强调按钮如多选） */
+    --color-active-solid-bg: rgba(0, 150, 0, 0.9);
+    --color-active-solid-border: rgba(0, 255, 0, 0.6);
     
     /* 危险/录制状态 - 红色主题 */
     --color-danger-bg: rgba(255, 80, 80, 0.25);
@@ -38,22 +41,24 @@
     --color-gesture-border: rgba(0, 255, 0, 0.5);
     --color-gesture-glow: rgba(0, 255, 0, 0.5);
     
-    /* 设置按钮激活 - 蓝色 */
-    --color-settings-bg: rgba(100, 150, 255, 0.3);
-    --color-settings-border: rgba(100, 150, 255, 0.5);
+    /* 设置按钮激活 - 绿色（与手势统一） */
+    --color-settings-bg: rgba(0, 180, 0, 0.3);
+    --color-settings-border: rgba(0, 255, 0, 0.5);
     
-    /* 间距系统 */
+    /* ===== 间距系统 ===== */
     --spacing-xs: 4px;
     --spacing-sm: 6px;
     --spacing-md: 8px;
     --spacing-lg: 12px;
     --spacing-xl: 18px;
+    /* 面板内统一间距（边距、控件间距） */
+    --spacing-panel: 16px;
     
     /* 圆角系统 */
-    --radius-sm: 4px;
-    --radius-md: 6px;
-    --radius-lg: 8px;
-    --radius-xl: 12px;
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 20px;
     
     /* 过渡效果 */
     --transition-fast: 0.15s ease;
@@ -67,12 +72,25 @@
     --z-tooltip: 400;
     --z-fixed-ui: 500;
     
-    /* 面板样式 - 几乎完全透明 */
+    /* 面板样式 - 轻微模糊，突出内容 */
     --panel-width: 280px;
     --panel-width-sm: 200px;
-    --panel-bg: rgba(10, 10, 12, 0.15);
-    --panel-blur: blur(6px);
-    --panel-shadow: 0 4px 20px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    --panel-bg: rgba(30, 30, 35, 0.25);
+    --panel-blur: blur(4px);
+    --panel-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    --panel-border: 1px solid rgba(255, 255, 255, 0.08);
+    
+    /* 控件样式 - 更加通透 */
+    --control-bg: rgba(255, 255, 255, 0.03);
+    --control-blur: blur(16px);
+    --control-radius: 12px;
+    --control-border: 1px solid rgba(255, 255, 255, 0.15);
+    
+    /* 列表项样式 */
+    --item-bg: rgba(255, 255, 255, 0.02);
+    --item-hover-bg: rgba(255, 255, 255, 0.08);
+    --item-active-bg: rgba(0, 180, 0, 0.25);
+    --item-radius: 8px;
 }
 
 /* ========== 基础重置 ========== */
@@ -96,24 +114,14 @@ body {
     height: 100vh;
 }
 
-/* ========== 全局滚动条 ========== */
+/* ========== 全局滚动条 - 禁用 ========== */
 ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    display: none;
 }
 
-::-webkit-scrollbar-track {
-    background: rgba(10, 10, 10, 0.6);
-    border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb {
-    background: rgba(100, 100, 100, 0.7);
-    border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-    background: rgba(120, 120, 120, 0.9);
+* {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
 }
 
 /* ========== 固定UI元素 ========== */
@@ -181,22 +189,32 @@ body {
     50% { box-shadow: 0 0 15px rgba(0, 255, 0, 0.8); }
 }
 
-/* 当前点数显示 */
+/* 当前点数显示 - 与全屏按钮样式一致 */
 #point-count-display {
     position: fixed;
     top: 20px;
     right: 20px;
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 13px;
-    font-weight: 500;
     z-index: var(--z-fixed-ui);
+    height: 40px;
+    border-radius: var(--radius-lg);
+    background-color: rgba(40, 40, 40, 0.8);
+    border: 1px solid var(--color-border);
+    color: #fff;
+    font-size: 13px;
+    font-weight: bold;
+    padding: 0 var(--spacing-lg);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
     pointer-events: none;
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
-#point-count-display span {
-    color: rgba(255, 255, 255, 0.9);
-    font-weight: bold;
+#point-count-display .label-text {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+#point-count-display #point-count {
+    color: #fff;
 }
 
 /* 手势状态弹窗 */
@@ -238,13 +256,40 @@ body {
     -webkit-backdrop-filter: var(--panel-blur);
     backdrop-filter: var(--panel-blur);
     border-radius: var(--radius-xl);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    box-shadow: var(--panel-shadow);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 
+        var(--panel-shadow),
+        /* 边缘光照效果 - 顶部和左侧更亮 */
+        inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
+        inset 1px 0 0 0 rgba(255, 255, 255, 0.05),
+        /* 外发光 */
+        0 0 20px rgba(255, 255, 255, 0.03);
     width: var(--panel-width);
-    transition: transform var(--transition-slow) cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.3s ease,
+                box-shadow 0.3s ease,
+                border-color 0.3s ease;
     box-sizing: border-box;
     padding: 0;
     z-index: var(--z-panel);
+}
+
+/* 收起状态的面板内容隐藏，但不影响标签 */
+.panel.collapsed .panel-content {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+
+.panel:not(.collapsed) .panel-content {
+    opacity: 1;
+    pointer-events: auto;
+    transition: opacity 0.3s ease 0.1s;
+}
+
+/* 收起状态的面板降低z-index，让标签可以显示在其他面板之上 */
+.panel.collapsed {
+    z-index: calc(var(--z-panel) - 1);
 }
 
 .panel:hover {
@@ -253,50 +298,78 @@ body {
 }
 
 .panel-content {
-    padding: var(--spacing-xl);
+    padding: 16px; /* 统一内边距，左右上下等距 */
+    /* 隐藏滚动条但允许滚动 */
+    overflow-y: auto;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
 }
 
-/* 面板标签 */
+.panel-content::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
+}
+
+/* 面板标签 - 在框外，圆角一致 */
 .panel .panel-tab {
     display: none;
     position: absolute;
     top: 50%;
     transform: translateY(-50%);
-    background: linear-gradient(135deg, rgba(25, 25, 25, 0.95) 0%, rgba(15, 15, 15, 0.98) 100%);
-    padding: 12px 8px;
+    background: rgba(30, 30, 35, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    padding: 16px 8px;
     cursor: pointer;
     writing-mode: vertical-rl;
     text-orientation: mixed;
     font-size: 12px;
     font-weight: bold;
     letter-spacing: 2px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    transition: all var(--transition-normal);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: var(--radius-xl);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     color: rgba(255, 255, 255, 0.8);
-    z-index: 10;
+    z-index: 9999;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* 收起状态的标签显示 */
+.panel.collapsed .panel-tab {
+    display: block;
+    z-index: 9999;
+}
+
+/* 左侧面板的标签在右边 */
+#control-panel .panel-tab,
+#view-panel .panel-tab {
+    right: -50px;
+}
+
+/* 右侧面板的标签在左边 */
+#data-panel .panel-tab,
+#experimental-panel .panel-tab {
+    left: -50px;
 }
 
 .panel .panel-tab:hover {
-    background: linear-gradient(135deg, rgba(35, 35, 35, 0.98) 0%, rgba(25, 25, 25, 1) 100%);
+    background: rgba(50, 50, 55, 0.95);
     color: #ffffff;
-}
-
-.panel.collapsed .panel-tab {
-    display: block;
+    transform: translateY(-50%) scale(1.02);
 }
 
 /* 面板头部 */
 .panel-header {
     display: flex;
-    align-items: flex-start;
+    align-items: center; /* 垂直居中对齐 */
     justify-content: space-between;
     gap: var(--spacing-lg);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+    padding-bottom: 12px;
+    margin-bottom: 16px; /* 与内容的间距 */
 }
 
 .panel-header h3 {
     margin: 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.15);
-    padding-bottom: var(--spacing-lg);
     font-weight: 700;
     font-size: 1.2em;
     letter-spacing: 0.5px;
@@ -306,32 +379,30 @@ body {
 .panel-header > div {
     display: flex;
     gap: var(--spacing-xs);
+    flex-shrink: 0; /* 防止按钮容器被压缩 */
 }
 
 /* 面板体 */
 .panel-body {
-    margin-top: var(--spacing-lg);
+    margin-top: 0; /* 由panel-content的padding控制 */
     flex: 1;
-    overflow-y: auto;
-    padding-right: var(--spacing-xs);
+    overflow: hidden; /* 禁止滚动 */
+    padding-right: 0;
 }
 
 /* ========== 控制面板 ========== */
 #control-panel {
     left: 20px;
-    max-height: calc(100vh - 40px);
     display: flex;
     flex-direction: column;
 }
 
 #control-panel .panel-tab {
-    right: -45px;
-    border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
-    border-left: none;
+    right: -52px;
 }
 
 #control-panel .panel-tab:hover {
-    right: -48px;
+    right: -52px;
 }
 
 #control-panel.collapsed {
@@ -339,8 +410,7 @@ body {
 }
 
 #control-panel .panel-content {
-    max-height: calc(100vh - 40px);
-    overflow-y: auto;
+    overflow: hidden; /* 禁止滚动 */
     display: flex;
     flex-direction: column;
 }
@@ -353,13 +423,11 @@ body {
 }
 
 #data-panel .panel-tab {
-    left: -45px;
-    border-radius: var(--radius-lg) 0 0 var(--radius-lg);
-    border-right: none;
+    left: -52px;
 }
 
 #data-panel .panel-tab:hover {
-    left: -48px;
+    left: -52px;
 }
 
 #data-panel.collapsed {
@@ -371,34 +439,53 @@ body {
     width: 520px;
     background: linear-gradient(135deg, rgba(25, 25, 25, 0.5) 0%, rgba(15, 15, 15, 0.55) 100%);
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+    overflow: visible; /* 允许抓手超出 */
 }
 
 #data-panel.enlarged .chart-container {
     height: 380px;
     background-color: rgba(0, 0, 0, 0.4);
+    position: relative;
+    flex-shrink: 0; /* 防止图表容器被压缩 */
 }
 
-/* 拖动句柄 */
-#data-panel-resize-handle {
+/* 内置resize手柄 - 在数据面板左上角外侧45° */
+#chart-resize-handle {
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 12px;
-    height: 12px;
+    top: -24px;
+    left: -24px;
+    width: 28px;
+    height: 28px;
     cursor: nw-resize;
-    z-index: 20;
-    border-top: 2px solid rgba(255, 255, 255, 0.5);
-    border-left: 2px solid rgba(255, 255, 255, 0.5);
-    border-top-left-radius: var(--radius-xl);
+    z-index: 200;
+    background: rgba(50, 50, 55, 0.95);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    opacity: 0.8;
+    transition: all var(--transition-normal);
     display: none;
-    transition: border-color var(--transition-normal);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 
-#data-panel-resize-handle:hover {
-    border-color: rgba(255, 255, 255, 0.8);
+#chart-resize-handle::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 10px;
+    height: 10px;
+    border-top: 2px solid rgba(255, 255, 255, 0.8);
+    border-left: 2px solid rgba(255, 255, 255, 0.8);
 }
 
-#data-panel.enlarged #data-panel-resize-handle {
+#chart-resize-handle:hover {
+    opacity: 1;
+    background: rgba(70, 70, 75, 0.95);
+    transform: scale(1.05);
+}
+
+#data-panel.enlarged #chart-resize-handle {
     display: block;
 }
 
@@ -411,13 +498,11 @@ body {
 }
 
 #view-panel .panel-tab {
-    right: -45px;
-    border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
-    border-left: none;
+    right: -52px;
 }
 
 #view-panel .panel-tab:hover {
-    right: -48px;
+    right: -52px;
 }
 
 #view-panel.collapsed {
@@ -434,13 +519,11 @@ body {
 }
 
 #experimental-panel .panel-tab {
-    left: -45px;
-    border-radius: var(--radius-lg) 0 0 var(--radius-lg);
-    border-right: none;
+    left: -52px;
 }
 
 #experimental-panel .panel-tab:hover {
-    left: -48px;
+    left: -52px;
 }
 
 #experimental-panel.collapsed {
@@ -544,16 +627,41 @@ body {
 
 /* ========== 控件组 ========== */
 .control-group {
-    margin-bottom: 0;
+    margin-bottom: 16px; /* 与padding一致的间距 */
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: var(--spacing-sm) 0;
+    padding: 0;
+}
+
+/* 最后一个控件组不需要底部margin */
+.control-group:last-child {
+    margin-bottom: 0;
+}
+
+/* 轨道列表容器 - 特殊布局 */
+.control-group.list-container {
+    align-items: stretch; /* 让子元素填满高度 */
+}
+
+/* 默认模式下的label样式 - 垂直居中 */
+.control-group.list-container > label {
+    flex-shrink: 0;
+    width: 56px;
+    margin-right: var(--spacing-md);
+    display: flex;
+    align-items: center; /* 垂直居中 */
+}
+
+/* glass-list保持固定宽度 */
+.control-group.list-container .glass-list {
+    flex: 1;
+    max-width: calc(100% - 72px);
 }
 
 /* ========== 标签 ========== */
 label {
-    margin-right: var(--spacing-lg);
+    margin-right: var(--spacing-md); /* 横向间距统一 */
     flex-shrink: 0;
     font-size: 14px;
     font-weight: bold;
@@ -620,16 +728,18 @@ button:disabled {
 
 /* 操作按钮组 */
 .action-buttons {
+    display: flex;
     justify-content: center;
-    gap: var(--spacing-lg);
-    flex-wrap: wrap;
+    gap: var(--spacing-md); /* 横向间距统一 */
+    flex-wrap: nowrap;
     width: 100%;
+    margin-top: 0; /* 由control-group的margin控制 */
 }
 
 .action-buttons button {
     flex: 1;
-    min-width: 60px;
-    max-width: 80px;
+    min-width: 0; /* 允许按钮缩小 */
+    padding: 12px 8px;
     font-size: 1em;
     background-color: var(--color-bg-primary);
     backdrop-filter: blur(12px);
@@ -640,32 +750,80 @@ button:disabled {
     background-color: var(--color-bg-hover);
 }
 
-/* 清除选择按钮 */
+/* 清除选择按钮 - 与其他按钮样式统一 */
 .clear-selections-btn {
-    width: 100%;
-    padding: var(--spacing-md) var(--spacing-lg);
-    background-color: rgba(255, 80, 80, 0.15);
-    border: 1px solid rgba(255, 80, 80, 0.4);
-    color: rgba(255, 120, 120, 1);
+    width: 56px;
+    flex: 1; /* 填充剩余空间，与列表对齐 */
+    min-height: 50px;
+    flex-shrink: 0;
+    background-color: var(--color-bg-primary) !important;
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--radius-md);
+    color: var(--color-text-secondary) !important;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    padding: var(--spacing-sm) var(--spacing-lg);
+    line-height: 1.3;
+    white-space: pre-line;
+    text-align: center;
+    transition: all var(--transition-normal);
+    display: flex;
+    align-items: center;
+    justify-content: center;
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
+    margin-top: 0; /* 与列表顶部对齐 */
 }
 
 .clear-selections-btn:hover {
-    background-color: rgba(255, 80, 80, 0.25);
-    border-color: rgba(255, 80, 80, 0.6);
+    background-color: var(--color-danger-bg) !important;
+    border-color: var(--color-danger-border) !important;
+    color: var(--color-danger-text) !important;
+}
+
+/* 多选控件布局 - 纵向排列，填满整个高度 */
+.multiselect-controls {
+    display: none; /* 默认隐藏 */
+}
+
+/* 当显示时，作为替代标签，高度与列表一致 */
+.multiselect-controls.visible {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    width: 56px;
+    height: 108px; /* 与列表和清空按钮高度一致 */
+    flex-shrink: 0;
+    margin-right: var(--spacing-md);
+}
+
+.multiselect-controls .label-text {
+    color: var(--color-text-secondary);
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.multiselect-controls .count-text {
+    color: var(--color-text-primary);
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 8px;
 }
 
 /* ========== 视角锁定按钮 ========== */
 .view-lock-buttons {
     display: flex;
     gap: var(--spacing-md);
+    flex: 1;
 }
 
 .view-lock-btn {
     flex: 1;
-    min-height: 32px;
-    padding: var(--spacing-sm) 10px;
+    height: 36px;
+    min-width: 36px;
+    padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -673,9 +831,9 @@ button:disabled {
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
     color: var(--color-text-secondary);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: bold;
-    letter-spacing: 0.3px;
+    letter-spacing: 0.5px;
     cursor: pointer;
     transition: all var(--transition-normal);
     box-sizing: border-box;
@@ -709,13 +867,13 @@ button:disabled {
 .mode-toggle-row {
     display: flex;
     gap: var(--spacing-md);
-    margin-bottom: var(--spacing-lg);
-    padding: var(--spacing-sm) 0;
+    margin-bottom: 16px; /* 与control-group间距一致 */
+    padding: 0;
 }
 
 .mode-toggle-row.single {
-    margin-bottom: var(--spacing-sm);
-    padding: var(--spacing-xs) 0;
+    margin-bottom: 16px;
+    padding: 0;
 }
 
 .mode-toggle-row.single .mode-toggle-box {
@@ -740,12 +898,14 @@ button:disabled {
     -webkit-backdrop-filter: blur(12px);
 }
 
-.mode-toggle-box:hover:not(.disabled) {
+.mode-toggle-box:hover:not(.disabled):not(.active) {
     background: var(--color-bg-hover);
     border-color: var(--color-border-hover);
 }
 
-.mode-toggle-box.active {
+/* active状态优先级最高，点击立即变绿 */
+.mode-toggle-box.active,
+.mode-toggle-box.active:hover {
     background: var(--color-active-bg);
     border-color: var(--color-active-border);
 }
@@ -773,9 +933,9 @@ button:disabled {
 /* ========== 功能行 (实验功能面板) ========== */
 .feature-row {
     display: flex;
-    align-items: stretch;
-    gap: var(--spacing-sm);
-    margin-bottom: var(--spacing-md);
+    align-items: center; /* 垂直居中 */
+    gap: var(--spacing-md); /* 增加间距 */
+    margin-bottom: 16px; /* 与其他控件间距一致 */
 }
 
 .feature-row:last-of-type {
@@ -789,14 +949,14 @@ button:disabled {
 
 /* 设置按钮 */
 .feature-settings-btn {
-    width: 32px;
-    height: 32px;
+    width: 36px; /* 增大按钮 */
+    height: 36px;
     background: var(--color-bg-primary);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
     cursor: pointer;
     color: var(--color-text-muted);
-    font-size: 14px;
+    font-size: 16px; /* 增大图标 */
     transition: all var(--transition-normal);
     display: flex;
     align-items: center;
@@ -812,6 +972,13 @@ button:disabled {
     color: rgba(255, 255, 255, 0.9);
 }
 
+/* 设置按钮永远不置灰 */
+.feature-settings-btn:disabled {
+    opacity: 1 !important;
+    cursor: pointer !important;
+    pointer-events: auto !important;
+}
+
 .feature-settings-btn.active {
     background: var(--color-settings-bg);
     border-color: var(--color-settings-border);
@@ -820,15 +987,15 @@ button:disabled {
 
 /* 功能框 */
 .feature-box {
-    flex: 1;
+    flex: 1; /* 占据剩余空间 */
     display: flex;
     align-items: center;
     justify-content: space-between;
+    height: 36px; /* 与按钮等高 */
     background: var(--color-bg-tertiary);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
-    padding: var(--spacing-sm) 10px;
-    min-height: 32px;
+    padding: 0 var(--spacing-md);
     box-sizing: border-box;
     transition: all var(--transition-normal);
     backdrop-filter: blur(12px);
@@ -844,9 +1011,16 @@ button:disabled {
     border-color: var(--color-border-hover);
 }
 
-.feature-box.active {
-    background: var(--color-active-bg);
-    border-color: var(--color-active-border);
+/* 占满整行的功能框（没有设置按钮时） */
+.feature-box.full-width {
+    justify-content: center;
+}
+
+/* active状态 - 使用!important确保覆盖hover */
+.feature-box.active,
+.feature-box.active:hover {
+    background: var(--color-active-bg) !important;
+    border-color: var(--color-active-border) !important;
 }
 
 .feature-name {
@@ -1008,6 +1182,8 @@ select {
     font-weight: bold;
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
+    flex: 1;
+    min-width: 100px;
 }
 
 select:hover {
@@ -1019,6 +1195,106 @@ select:focus {
     outline: none;
     border-color: var(--color-border-focus);
     box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.1);
+}
+
+/* ========== 自定义下拉组件（替代原生select） ========== */
+.custom-dropdown {
+    position: relative;
+    flex: 1;
+    min-width: 100px;
+}
+
+.custom-dropdown-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--color-bg-primary);
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-border);
+    padding: var(--spacing-md) var(--spacing-lg);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: bold;
+    transition: all var(--transition-normal);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    text-align: center;
+    position: relative;
+}
+
+.custom-dropdown-trigger:hover {
+    background-color: var(--color-bg-hover);
+    border-color: var(--color-border-hover);
+}
+
+.custom-dropdown.open .custom-dropdown-trigger {
+    border-color: var(--color-border-focus);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.1);
+}
+
+.custom-dropdown-arrow {
+    font-size: 8px;
+    position: absolute;
+    right: 12px;
+    transition: transform var(--transition-normal);
+    opacity: 0.6;
+}
+
+.custom-dropdown.open .custom-dropdown-arrow {
+    transform: rotate(180deg);
+}
+
+.custom-dropdown-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    max-height: 150px; /* 限制高度 */
+    overflow-y: auto;
+    background-color: rgba(25, 25, 30, 0.95);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    z-index: 1000;
+    display: none;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+.custom-dropdown.open .custom-dropdown-menu {
+    display: block;
+}
+
+.custom-dropdown-item {
+    padding: 10px 12px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: bold;
+    color: var(--color-text-primary);
+    transition: background-color var(--transition-fast);
+}
+
+.custom-dropdown-item:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.custom-dropdown-item.selected {
+    background-color: rgba(0, 180, 0, 0.35);
+    color: #ffffff;
+}
+
+/* 自定义下拉菜单滚动条 */
+.custom-dropdown-menu::-webkit-scrollbar {
+    width: 4px;
+}
+
+.custom-dropdown-menu::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.custom-dropdown-menu::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
 }
 
 select option {
@@ -1075,10 +1351,21 @@ select option:checked {
 .control-group select[size] option:checked,
 .control-group select[multiple] option:checked,
 #orbital-select option:checked {
-    background-color: rgba(80, 200, 120, 0.35) !important;
+    background-color: rgba(0, 180, 0, 0.35) !important;
     color: #ffffff !important;
     font-weight: bold;
     border-left: 3px solid var(--color-active-border);
+}
+
+/* 最大点数下拉菜单 - 限制高度 */
+#max-points-select {
+    position: relative;
+}
+
+/* 使用size属性控制可见选项数量 */
+select[size]:not([size="1"]) {
+    max-height: 150px;
+    overflow-y: auto;
 }
 
 /* 多选模式选中项样式 - 只在 multiselect-active 时使用绿色 */
@@ -1109,9 +1396,9 @@ select option:checked {
 }
 
 .multiselect-active .control-group select[multiple] option:checked:hover {
-    background: rgba(80, 200, 120, 0.4);
-    color: rgba(140, 240, 170, 1);
-    border: 1px solid rgba(80, 200, 120, 1);
+    background: rgba(0, 180, 0, 0.4);
+    color: #ffffff;
+    border: 1px solid rgba(0, 255, 0, 1);
     transform: scale(1.02);
 }
 
@@ -1295,19 +1582,18 @@ input[type="range"]::-moz-range-thumb {
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
-/* 亮度滑条 */
+/* 亮度滑条 - 与其他滑条布局一致 */
 .brightness-control {
-    flex-direction: column;
-    align-items: flex-start;
+    /* 继承 control-group 的 flex 布局 */
 }
 
 .brightness-control label {
-    margin-bottom: var(--spacing-sm);
+    /* 不需要特殊样式 */
 }
 
 .brightness-slider-container {
+    flex: 1;
     position: relative;
-    width: 100%;
     display: flex;
     align-items: center;
 }
@@ -1317,8 +1603,8 @@ input[type="range"]::-moz-range-thumb {
     margin: 0;
     background: linear-gradient(90deg, 
         rgba(255, 255, 255, 0.2) 0%, 
-        rgba(255, 255, 255, 0.2) 80%, 
-        rgba(255, 255, 255, 0.5) 80%, 
+        rgba(255, 255, 255, 0.2) 50%, 
+        rgba(255, 255, 255, 0.5) 50%, 
         rgba(255, 255, 255, 0.5) 100%);
 }
 
@@ -1328,9 +1614,10 @@ input[type="range"]::-moz-range-thumb {
 
 /* ========== 图表容器 ========== */
 .chart-container {
+    position: relative; /* 为内部absolute定位的手柄提供参照 */
     width: 100%;
     height: 200px;
-    margin-top: var(--spacing-lg);
+    margin-top: 16px; /* 与其他控件间距一致 */
     border-radius: var(--radius-lg);
     background-color: rgba(0, 0, 0, 0.3);
     padding: var(--spacing-md);
@@ -1431,7 +1718,7 @@ canvas {
 }
 
 .toggle-switch input:checked + .toggle-slider {
-    background-color: rgba(80, 200, 120, 0.4);
+    background-color: rgba(0, 180, 0, 0.4);
     border-color: var(--color-active-border);
 }
 
@@ -1441,7 +1728,7 @@ canvas {
 }
 
 .toggle-switch input:focus + .toggle-slider {
-    box-shadow: 0 0 3px rgba(80, 200, 120, 0.5);
+    box-shadow: 0 0 3px rgba(0, 255, 0, 0.5);
 }
 
 /* ========== 子菜单触发器 ========== */
@@ -1557,7 +1844,7 @@ canvas {
     display: flex;
     flex-direction: column;
     gap: 10px;
-    margin-top: var(--spacing-md);
+    margin-top: 16px; /* 与feature-row间距一致 */
 }
 
 #experimental-panel .action-buttons button {
@@ -1590,4 +1877,275 @@ canvas {
 /* ========== 多选控件样式 ========== */
 .multiselect-controls {
     margin-top: var(--spacing-md);
+}
+
+/* Custom Orbital List Styles */
+.glass-list {
+    height: 108px; /* 3个轨道高度，与清空按钮一致 */
+    overflow-y: auto;
+    background: var(--control-bg);
+    backdrop-filter: var(--control-blur);
+    border-radius: var(--control-radius);
+    border: var(--control-border);
+    padding: 4px;
+    margin-top: 0; /* 与清空按钮顶部对齐 */
+}
+
+.glass-item {
+    padding: 8px 12px;
+    margin-bottom: 4px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.7);
+    display: flex;
+    align-items: center;
+    position: relative;
+    border: 1px solid transparent; /* 预留边框位置 */
+}
+
+.glass-item:hover {
+    background: var(--item-hover-bg);
+    color: #fff;
+}
+
+/* Default & Multi Mode Active (Green) */
+.glass-item.active {
+    background: rgba(0, 180, 0, 0.25);
+    color: #ffffff;
+    box-shadow: 0 0 12px rgba(0, 255, 0, 0.3);
+    border: 1px solid rgba(0, 255, 0, 0.5);
+}
+
+/* Compare Mode A (Red) - Matches core.js compareColors[0] */
+.glass-item.compare-a {
+    background: rgba(255, 80, 80, 0.25);
+    color: #fff;
+    box-shadow: 0 0 12px rgba(255, 80, 80, 0.3);
+    border: 1px solid rgba(255, 80, 80, 0.6);
+}
+
+/* Compare Mode B (Green) - Matches core.js compareColors[1] */
+.glass-item.compare-b {
+    background: rgba(80, 255, 80, 0.25);
+    color: #fff;
+    box-shadow: 0 0 12px rgba(80, 255, 80, 0.3);
+    border: 1px solid rgba(80, 255, 80, 0.6);
+}
+
+/* Compare Mode C (Blue) - Matches core.js compareColors[2] */
+.glass-item.compare-c {
+    background: rgba(80, 80, 255, 0.25);
+    color: #fff;
+    box-shadow: 0 0 12px rgba(80, 80, 255, 0.3);
+    border: 1px solid rgba(80, 80, 255, 0.6);
+}
+
+/* Orbital Hidden State - 轨道被隐藏时的样式 */
+.glass-item.orbital-hidden {
+    opacity: 0.4;
+    text-decoration: line-through;
+    box-shadow: none !important;
+}
+
+.glass-item.orbital-hidden:hover {
+    opacity: 0.6;
+}
+
+/* Multi-Select Checkbox Indicator - 不显示，统一样式 */
+.glass-item .multi-indicator {
+    display: none !important; /* 彻底隐藏 */
+}
+
+.glass-item.active .multi-indicator {
+    display: none !important; /* 彻底隐藏 */
+}
+
+/* Custom Scrollbar for Glass List - Hidden as requested */
+.glass-list::-webkit-scrollbar {
+    display: none;
+}
+.glass-list {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+.glass-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+.glass-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 2px;
+}
+.glass-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* Glass Control Generic Class */
+.glass-control {
+    background: var(--control-bg);
+    backdrop-filter: var(--control-blur);
+    border-radius: var(--control-radius);
+    border: var(--control-border);
+    padding: 8px;
+}
+
+/* ========== Custom Select Dropdown Styles ========== */
+.custom-select-container {
+    position: relative;
+    width: 100%;
+    margin-bottom: 0;
+}
+
+.custom-select-trigger {
+    background: var(--control-bg);
+    backdrop-filter: var(--control-blur);
+    border: var(--control-border);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-primary);
+    padding: 6px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: all 0.2s ease;
+}
+
+.custom-select-trigger:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.custom-select-trigger::after {
+    content: '▼';
+    font-size: 10px;
+    opacity: 0.6;
+    transform: scaleY(0.8);
+    transition: transform 0.2s ease;
+}
+
+.custom-select-container.open .custom-select-trigger::after {
+    transform: scaleY(-0.8);
+}
+
+.custom-select-options {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 4px;
+    background: rgba(30, 30, 35, 0.95);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: var(--radius-md);
+    z-index: 1000;
+    max-height: 200px;
+    overflow-y: auto;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-10px);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.custom-select-container.open .custom-select-options {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+.custom-option {
+    padding: 8px 12px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 13px;
+}
+
+.custom-option:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+.custom-option.selected {
+    background: rgba(0, 180, 0, 0.2);
+    color: #ffffff;
+    font-weight: bold;
+}
+
+/* Scrollbar for custom options */
+.custom-select-options::-webkit-scrollbar {
+    width: 4px;
+}
+.custom-select-options::-webkit-scrollbar-track {
+    background: transparent;
+}
+.custom-select-options::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+}
+
+/* Hide original selects but keep them for logic */
+select.hidden-native {
+    display: none !important;
+}
+
+/* Global Input Styles for Glass Effect */
+input[type="text"],
+input[type="number"],
+select {
+    background: var(--control-bg) !important;
+    backdrop-filter: var(--control-blur) !important;
+    border: var(--control-border) !important;
+    border-radius: var(--radius-sm) !important;
+    color: var(--color-text-primary) !important;
+    padding: 4px 8px;
+}
+
+/* Custom Range Slider */
+input[type=range] {
+    -webkit-appearance: none;
+    background: transparent;
+    width: 100%;
+    margin: 10px 0;
+}
+
+input[type=range]:focus {
+    outline: none;
+}
+
+input[type=range]::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 6px;
+    cursor: pointer;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(4px);
+    border-radius: 3px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+input[type=range]::-webkit-slider-thumb {
+    height: 18px;
+    width: 18px;
+    border-radius: 50%;
+    background: #ffffff;
+    cursor: pointer;
+    -webkit-appearance: none;
+    margin-top: -7px;
+    box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+    transition: transform 0.1s;
+}
+
+input[type=range]::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+    box-shadow: 0 0 15px rgba(255, 255, 255, 0.5);
+}
+
+/* Feature Box & Mode Toggle Box Glass Effect */
+.feature-box, .mode-toggle-box {
+    background: var(--control-bg);
+    backdrop-filter: var(--control-blur);
+    border: var(--control-border);
+    border-radius: var(--radius-md);
 }

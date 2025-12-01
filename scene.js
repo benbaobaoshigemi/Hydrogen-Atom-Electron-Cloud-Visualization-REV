@@ -81,6 +81,9 @@ window.ElectronCloud.Scene.init = function() {
     });
     state.scene.add(state.customAxes);
     
+    // 权重模式状态（独立于闪烁模式）
+    state.weightMode = false;
+    
     // 闪烁模式状态
     state.heartbeat = {
         enabled: false,
@@ -90,7 +93,7 @@ window.ElectronCloud.Scene.init = function() {
         mode: 'starry', // 'starry'(默认), 'breath', 'diffuse'(扩散), 'wave'(波浪)
         frequency: 50,     // 0-100，默认50%（中间值）
         starryPhases: null, // 星空模式的随机相位数组
-        weightMode: false   // 权重模式：密集区域闪烁更亮
+        weightMode: false   // 兼容旧属性
     };
 
     // 监听窗口大小变化
@@ -814,6 +817,55 @@ window.ElectronCloud.Scene.animate = function() {
             }
         }
         state.bloomEnabled = true;
+    }
+    
+    // 独立权重模式：即使闪烁模式关闭，也可以根据密度权重调整颜色亮度
+    // 这使得静态辉光也能按权重显示
+    if (state.weightMode && !state.heartbeat.enabled && state.points && state.points.geometry && state.bloomEnabled) {
+        const colors = state.points.geometry.attributes.color;
+        const positions = state.points.geometry.attributes.position;
+        if (colors && positions) {
+            const pointCount = state.pointCount || 0;
+            const maxPoints = state.MAX_POINTS || 100000;
+            
+            // 初始化/更新密度权重
+            if (!state.densityWeights || state.densityWeights.length < maxPoints) {
+                state.densityWeights = new Float32Array(maxPoints);
+                for (let i = 0; i < pointCount; i++) {
+                    const i3 = i * 3;
+                    const x = positions.array[i3];
+                    const y = positions.array[i3 + 1];
+                    const z = positions.array[i3 + 2];
+                    const r = Math.sqrt(x * x + y * y + z * z);
+                    state.densityWeights[i] = Math.exp(-r / 10) * 0.7 + 0.3;
+                }
+            }
+            
+            // 保存原始颜色（如果还没有）
+            if (state.baseColorsCount === 0 && pointCount > 0) {
+                if (!state.baseColors) {
+                    state.baseColors = new Float32Array(maxPoints * 3);
+                }
+                const colorArray = colors.array;
+                for (let i = 0; i < pointCount * 3; i++) {
+                    state.baseColors[i] = colorArray[i];
+                }
+                state.baseColorsCount = pointCount;
+            }
+            
+            // 根据权重调整颜色亮度
+            const colorArray = colors.array;
+            const processCount = Math.min(pointCount, state.baseColorsCount);
+            for (let i = 0; i < processCount; i++) {
+                const weight = state.densityWeights[i] || 0.5;
+                const brightness = 0.5 + weight * 1.0; // 0.5 - 1.5 范围
+                const i3 = i * 3;
+                colorArray[i3] = Math.min(1.0, state.baseColors[i3] * brightness);
+                colorArray[i3 + 1] = Math.min(1.0, state.baseColors[i3 + 1] * brightness);
+                colorArray[i3 + 2] = Math.min(1.0, state.baseColors[i3 + 2] * brightness);
+            }
+            colors.needsUpdate = true;
+        }
     }
 
     state.controls.update();
