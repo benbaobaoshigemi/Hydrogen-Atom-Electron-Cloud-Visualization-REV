@@ -1,0 +1,5 @@
+dist/
+build/
+*.spec
+launcher.py
+Hydrogen-Atom-Electron-Cloud-Visualization-v1.0.zip
