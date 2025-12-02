@@ -276,7 +276,7 @@ body {
     overflow: visible; /* 允许标签和手柄超出面板 */
 }
 
-/* 面板玻璃边框效果 - 静态高光边框 */
+/* 面板玻璃边框效果 - 静态高光边框，左侧面板默认右侧、顶部、底部亮 */
 .panel-content::before {
     content: '';
     position: absolute;
@@ -287,17 +287,31 @@ body {
     border-radius: inherit;
     pointer-events: none;
     z-index: 100;
-    /* 玻璃高光边框 - 顶部和左侧微光，底部和右侧轻微暗边 */
+    /* 默认左侧面板：右侧、顶部、底部亮（内侧） */
     border: 1px solid transparent;
     border-top-color: rgba(255, 255, 255, 0.15);
-    border-left-color: rgba(255, 255, 255, 0.10);
-    border-bottom-color: rgba(0, 0, 0, 0.12);
-    border-right-color: rgba(0, 0, 0, 0.08);
+    border-right-color: rgba(255, 255, 255, 0.12);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+    border-left-color: rgba(0, 0, 0, 0.06);
     /* 内发光 - 模拟玻璃边缘光线折射 */
     box-shadow: 
         inset 0 1px 0 rgba(255, 255, 255, 0.1),
-        inset 1px 0 0 rgba(255, 255, 255, 0.06),
-        inset 0 -1px 0 rgba(0, 0, 0, 0.06),
+        inset -1px 0 0 rgba(255, 255, 255, 0.08),
+        inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+        inset 1px 0 0 rgba(0, 0, 0, 0.04);
+}
+
+/* 右侧面板：左侧、顶部、底部亮（内侧） */
+#data-panel .panel-content::before,
+#experimental-panel .panel-content::before {
+    border-top-color: rgba(255, 255, 255, 0.15);
+    border-left-color: rgba(255, 255, 255, 0.12);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+    border-right-color: rgba(0, 0, 0, 0.06);
+    box-shadow: 
+        inset 0 1px 0 rgba(255, 255, 255, 0.1),
+        inset 1px 0 0 rgba(255, 255, 255, 0.08),
+        inset 0 -1px 0 rgba(255, 255, 255, 0.05),
         inset -1px 0 0 rgba(0, 0, 0, 0.04);
 }
 
@@ -326,8 +340,8 @@ body {
 .panel-content {
     position: relative; /* 为伪元素提供定位参�?*/
     padding: var(--spacing-panel); /* 统一内边距，左右上下等距 */
-    /* 隐藏滚动条但允许滚动 */
-    overflow: hidden; /* 隐藏伪元素超出部�?*/
+    /* 允许发光效果溢出，不裁剪 box-shadow */
+    overflow: visible;
     border-radius: inherit; /* 继承面板圆角 */
     scrollbar-width: none; /* Firefox */
     -ms-overflow-style: none; /* IE/Edge */
@@ -416,7 +430,7 @@ body {
 .panel-body {
     margin-top: 0; /* 由panel-content的padding控制 */
     flex: 1;
-    overflow: hidden; /* 禁止滚动 */
+    overflow: visible; /* 允许发光效果溢出 */
     padding-right: 0;
 }
 
@@ -440,7 +454,7 @@ body {
 }
 
 #control-panel .panel-content {
-    overflow: hidden; /* 禁止滚动 */
+    overflow: visible; /* 允许发光效果溢出 */
     display: flex;
     flex-direction: column;
 }
@@ -578,7 +592,7 @@ body {
     display: none;
     opacity: 0;
     transition: opacity var(--transition-normal);
-    overflow: hidden;
+    overflow: visible; /* 允许发光效果溢出 */
     box-sizing: border-box;
 }
 
@@ -606,7 +620,7 @@ body {
 
 .submenu-body {
     padding: var(--spacing-lg) 14px;
-    overflow: hidden;
+    overflow: visible; /* 允许发光效果溢出 */
 }
 
 .submenu-body .control-group {
@@ -890,11 +904,19 @@ button:disabled {
     background-color: var(--color-active-bg);
     border-color: var(--color-active-border);
     color: var(--color-active-text);
+    box-shadow: 
+        0 0 24px var(--color-active-glow),
+        0 0 40px var(--color-active-glow),
+        inset 0 1px 0 rgba(255, 255, 255, 0.15);
 }
 
 .view-lock-btn.active:hover {
     background-color: var(--color-active-bg);
     color: var(--color-active-text);
+    box-shadow: 
+        0 0 24px var(--color-active-glow),
+        0 0 40px var(--color-active-glow),
+        inset 0 1px 0 rgba(255, 255, 255, 0.15);
 }
 
 /* ========== 模式切换�?(多�?比照/渲染相位�? ========== */
@@ -937,11 +959,17 @@ button:disabled {
     border-color: var(--color-border-hover);
 }
 
-/* active状态优先级最高，点击立即变绿 */
+/* active状态优先级最高，点击立即变绿，超强发光效果 */
 .mode-toggle-box.active,
 .mode-toggle-box.active:hover {
     background: var(--color-active-bg);
-    border-color: var(--color-active-border);
+    border-color: rgba(0, 255, 0, 0.8);
+    box-shadow: 
+        0 0 8px rgba(0, 255, 0, 0.6),
+        0 0 16px rgba(0, 255, 0, 0.4),
+        0 0 32px rgba(0, 255, 0, 0.3),
+        0 0 48px rgba(0, 255, 0, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .mode-toggle-box.disabled {
@@ -1017,6 +1045,10 @@ button:disabled {
     background: var(--color-settings-bg);
     border-color: var(--color-settings-border);
     color: #fff;
+    box-shadow: 
+        0 0 24px var(--color-active-glow),
+        0 0 40px var(--color-active-glow),
+        inset 0 1px 0 rgba(255, 255, 255, 0.15);
 }
 
 /* 功能�?- 与按钮样式统一 */
@@ -1050,11 +1082,17 @@ button:disabled {
     justify-content: center;
 }
 
-/* active状�?- 使用!important确保覆盖hover */
+/* active状态 - 使用!important确保覆盖hover，超强发光效果 */
 .feature-box.active,
 .feature-box.active:hover {
     background: var(--color-active-bg) !important;
-    border-color: var(--color-active-border) !important;
+    border-color: rgba(0, 255, 0, 0.8) !important;
+    box-shadow: 
+        0 0 8px rgba(0, 255, 0, 0.6),
+        0 0 16px rgba(0, 255, 0, 0.4),
+        0 0 32px rgba(0, 255, 0, 0.3),
+        0 0 48px rgba(0, 255, 0, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
 }
 
 .feature-name {
@@ -1384,7 +1422,7 @@ select option:checked {
     font-weight: bold;
 }
 
-/* 单选模式和多选模式下的选中项基础样式 */
+/* 单选模式和多选模式下的选中项基础样式 - 添加发光效果 */
 .control-group select[size] option:checked,
 .control-group select[multiple] option:checked,
 #orbital-select option:checked {
@@ -1392,6 +1430,9 @@ select option:checked {
     color: #ffffff !important;
     font-weight: bold;
     border-left: 3px solid var(--color-active-border);
+    box-shadow: 
+        0 0 24px var(--color-active-glow),
+        0 0 40px var(--color-active-glow);
 }
 
 /* 最大点数下拉菜�?- 限制高度 */
@@ -1405,7 +1446,7 @@ select[size]:not([size="1"]) {
     overflow-y: auto;
 }
 
-/* 多选模式选中项样�?- 只在 multiselect-active 时使用绿�?*/
+/* 多选模式选中项样�?- 只在 multiselect-active 时使用绿�?，添加发光效果 */
 .multiselect-active .control-group select[multiple] option:checked {
     background: var(--color-active-bg) !important;
     color: var(--color-active-text) !important;
@@ -1414,6 +1455,9 @@ select[size]:not([size="1"]) {
     font-weight: bold;
     font-size: 1.05em;
     margin: 2px var(--spacing-xs);
+    box-shadow: 
+        0 0 24px var(--color-active-glow),
+        0 0 40px var(--color-active-glow) !important;
     padding: var(--spacing-xs) var(--spacing-md);
     box-shadow: 0 0 8px var(--color-active-glow) inset;
 }
@@ -1569,6 +1613,11 @@ input[type="checkbox"]:hover {
 
 input[type="checkbox"]:checked {
     background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(220, 220, 220, 1) 100%);
+    box-shadow: 
+        0 0 8px rgba(0, 255, 0, 0.6),
+        0 0 16px rgba(0, 255, 0, 0.4),
+        0 0 32px rgba(0, 255, 0, 0.3),
+        0 0 48px rgba(0, 255, 0, 0.2);
 }
 
 input[type="checkbox"]:disabled {
@@ -1759,7 +1808,12 @@ canvas {
 
 .toggle-switch input:checked + .toggle-slider {
     background-color: var(--color-active-bg);
-    border-color: var(--color-active-border);
+    border-color: rgba(0, 255, 0, 0.8);
+    box-shadow: 
+        0 0 8px rgba(0, 255, 0, 0.6),
+        0 0 16px rgba(0, 255, 0, 0.4),
+        0 0 32px rgba(0, 255, 0, 0.3),
+        0 0 48px rgba(0, 255, 0, 0.2);
 }
 
 .toggle-switch input:checked + .toggle-slider:before {
@@ -1768,7 +1822,9 @@ canvas {
 }
 
 .toggle-switch input:focus + .toggle-slider {
-    box-shadow: 0 0 3px var(--color-active-glow);
+    box-shadow: 
+        0 0 24px var(--color-active-glow),
+        0 0 40px var(--color-active-glow);
 }
 
 /* ========== 子菜单触发器 ========== */
@@ -1805,6 +1861,10 @@ canvas {
     background: var(--color-settings-bg);
     border-color: var(--color-settings-border);
     color: #fff;
+    box-shadow: 
+        0 0 24px var(--color-active-glow),
+        0 0 40px var(--color-active-glow),
+        inset 0 1px 0 rgba(255, 255, 255, 0.15);
 }
 
 /* ========== 开关行样式 ========== */
@@ -1913,21 +1973,21 @@ canvas {
 
 /* Custom Orbital List Styles */
 .glass-list {
-    height: 108px; /* 3个轨道高度，与清空按钮一�?*/
+    height: 108px; /* 3个轨道高度，与清空按钮一对 */
     overflow-y: auto;
     background: var(--color-bg-primary);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-lg); /* 与按钮圆角一致 */
     border: 1px solid var(--color-border);
     padding: 4px;
-    margin-top: 0; /* 与清空按钮顶部对�?*/
+    margin-top: 0; /* 与清空按钮顶部对齐 */
 }
 
 .glass-item {
     padding: 8px 12px;
     margin-bottom: 4px;
-    border-radius: 8px;
+    border-radius: var(--radius-md); /* 与按钮内部圆角一致 */
     cursor: pointer;
     transition: all 0.2s ease;
     font-size: 13px;
@@ -1943,36 +2003,45 @@ canvas {
     color: #fff;
 }
 
-/* Default & Multi Mode Active (Blue) */
+/* Default & Multi Mode Active (Green with glow) - 超强发光效果 */
 .glass-item.active {
     background: var(--color-active-bg);
     color: var(--color-active-text);
-    box-shadow: 0 0 12px var(--color-active-glow);
-    border: 1px solid var(--color-active-border);
+    box-shadow: 
+        0 0 8px rgba(0, 255, 0, 0.6),
+        0 0 16px rgba(0, 255, 0, 0.4),
+        0 0 32px rgba(0, 255, 0, 0.3),
+        0 0 48px rgba(0, 255, 0, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(0, 255, 0, 0.8);
+    text-shadow: 0 0 12px rgba(0, 255, 0, 0.8);
 }
 
-/* Compare Mode A (Red) - Matches core.js compareColors[0] */
+/* Compare Mode A (Red) - Matches core.js compareColors[0] - 发光半径扩大一倍 */
 .glass-item.compare-a {
     background: rgba(255, 80, 80, 0.25);
     color: #fff;
-    box-shadow: 0 0 12px rgba(255, 80, 80, 0.3);
+    box-shadow: 0 0 24px rgba(255, 80, 80, 0.3), 0 0 40px rgba(255, 80, 80, 0.15);
     border: 1px solid rgba(255, 80, 80, 0.6);
+    text-shadow: 0 0 16px rgba(255, 80, 80, 0.5);
 }
 
-/* Compare Mode B (Green) - Matches core.js compareColors[1] */
+/* Compare Mode B (Green) - Matches core.js compareColors[1] - 发光半径扩大一倍 */
 .glass-item.compare-b {
     background: rgba(80, 255, 80, 0.25);
     color: #fff;
-    box-shadow: 0 0 12px rgba(80, 255, 80, 0.3);
+    box-shadow: 0 0 24px rgba(80, 255, 80, 0.3), 0 0 40px rgba(80, 255, 80, 0.15);
     border: 1px solid rgba(80, 255, 80, 0.6);
+    text-shadow: 0 0 16px rgba(80, 255, 80, 0.5);
 }
 
-/* Compare Mode C (Blue) - Matches core.js compareColors[2] */
+/* Compare Mode C (Blue) - Matches core.js compareColors[2] - 发光半径扩大一倍 */
 .glass-item.compare-c {
-    background: rgba(80, 80, 255, 0.25);
+    background: rgba(80, 255, 80, 0.25);
     color: #fff;
-    box-shadow: 0 0 12px rgba(80, 80, 255, 0.3);
+    box-shadow: 0 0 24px rgba(80, 80, 255, 0.3), 0 0 40px rgba(80, 80, 255, 0.15);
     border: 1px solid rgba(80, 80, 255, 0.6);
+    text-shadow: 0 0 16px rgba(80, 80, 255, 0.5);
 }
 
 /* Orbital Hidden State - 轨道被隐藏时的样�?*/
@@ -2053,7 +2122,7 @@ canvas {
 }
 
 .custom-select-trigger::after {
-    content: '�?;
+    content: '▼';
     font-size: 10px;
     opacity: 0.6;
     transform: scaleY(0.8);

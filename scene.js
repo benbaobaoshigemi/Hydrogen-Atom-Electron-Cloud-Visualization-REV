@@ -276,7 +276,7 @@ window.ElectronCloud.Scene.initBloom = function() {
         state.bloomPass = new THREE.UnrealBloomPass(
             new THREE.Vector2(width, height),
             0,      // 初始强度 strength
-            0.5,    // 半径 radius
+            0.2,    // 半径 radius - 缩小以防止边缘被裁剪
             0       // 阈值 threshold - 设为0使所有颜色都能发光
         );
         state.composer.addPass(state.bloomPass);
@@ -512,7 +512,10 @@ window.ElectronCloud.Scene.animate = function() {
             // 平滑的呼吸波形 (使用 cos 使得从亮开始)
             const breathWave = 0.5 + 0.5 * Math.cos(state.heartbeat.phase);
             
-            const maxStrength = (state.heartbeat.maxBrightness || 200) / 100 * 1.5;
+            // 最大亮度调整：100 + (n-100)*0.1
+            const rawBrightness = state.heartbeat.maxBrightness || 200;
+            const adjustedBrightness = 100 + (rawBrightness - 100) * 0.1;
+            const maxStrength = adjustedBrightness / 100 * 1.5 * 1.5;
             state.bloomPass.strength = breathWave * maxStrength;
             
             const minOpacity = 0.25;
@@ -526,7 +529,10 @@ window.ElectronCloud.Scene.animate = function() {
             // 扩散模式：从高密度区域向低密度区域扩散的波纹
             state.heartbeat.phase += 0.02 * frequencyScale;
             
-            const maxStrength = (state.heartbeat.maxBrightness || 200) / 100 * 1.5;
+            // 最大亮度调整：100 + (n-100)*0.1
+            const rawBrightness = state.heartbeat.maxBrightness || 200;
+            const adjustedBrightness = 100 + (rawBrightness - 100) * 0.1;
+            const maxStrength = adjustedBrightness / 100 * 1.5 * 1.5;
             state.bloomPass.strength = maxStrength * 0.7;
             
             if (state.points && state.points.geometry) {
@@ -622,7 +628,10 @@ window.ElectronCloud.Scene.animate = function() {
             // 等值面是包含特定百分比点的表面，比如P轨道的哑铃形
             state.heartbeat.phase += 0.00375 * frequencyScale; // 原来0.015，现在缩小到1/4
             
-            const maxStrength = (state.heartbeat.maxBrightness || 200) / 100 * 1.5;
+            // 最大亮度调整：100 + (n-100)*0.1
+            const rawBrightness = state.heartbeat.maxBrightness || 200;
+            const adjustedBrightness = 100 + (rawBrightness - 100) * 0.1;
+            const maxStrength = adjustedBrightness / 100 * 1.5 * 1.5;
             state.bloomPass.strength = maxStrength * 0.9;
             
             if (state.points && state.points.geometry) {
@@ -821,31 +830,25 @@ window.ElectronCloud.Scene.animate = function() {
     
     // 独立权重模式：即使闪烁模式关闭，也可以根据密度权重调整颜色亮度
     // 这使得静态辉光也能按权重显示
-    if (state.weightMode && !state.heartbeat.enabled && state.points && state.points.geometry && state.bloomEnabled) {
+    // 辉光亮度 = 基础亮度 × 权重系数(不开启则为1) × 闪烁系数(不开启则为1)
+    if (!state.heartbeat.enabled && state.points && state.points.geometry) {
+        // 非闪烁模式下，始终启用辉光，只是强度不同
+        state.bloomEnabled = true;
+        
         const colors = state.points.geometry.attributes.color;
         const positions = state.points.geometry.attributes.position;
         if (colors && positions) {
             const pointCount = state.pointCount || 0;
             const maxPoints = state.MAX_POINTS || 100000;
             
-            // 初始化/更新密度权重
-            if (!state.densityWeights || state.densityWeights.length < maxPoints) {
-                state.densityWeights = new Float32Array(maxPoints);
-                for (let i = 0; i < pointCount; i++) {
-                    const i3 = i * 3;
-                    const x = positions.array[i3];
-                    const y = positions.array[i3 + 1];
-                    const z = positions.array[i3 + 2];
-                    const r = Math.sqrt(x * x + y * y + z * z);
-                    state.densityWeights[i] = Math.exp(-r / 10) * 0.7 + 0.3;
-                }
+            // 确保有基础颜色数组
+            if (!state.baseColors || state.baseColors.length < maxPoints * 3) {
+                state.baseColors = new Float32Array(maxPoints * 3);
+                state.baseColorsCount = 0;
             }
             
             // 保存原始颜色（如果还没有）
             if (state.baseColorsCount === 0 && pointCount > 0) {
-                if (!state.baseColors) {
-                    state.baseColors = new Float32Array(maxPoints * 3);
-                }
                 const colorArray = colors.array;
                 for (let i = 0; i < pointCount * 3; i++) {
                     state.baseColors[i] = colorArray[i];
@@ -853,18 +856,63 @@ window.ElectronCloud.Scene.animate = function() {
                 state.baseColorsCount = pointCount;
             }
             
-            // 根据权重调整颜色亮度
             const colorArray = colors.array;
             const processCount = Math.min(pointCount, state.baseColorsCount);
-            for (let i = 0; i < processCount; i++) {
-                const weight = state.densityWeights[i] || 0.5;
-                const brightness = 0.5 + weight * 1.0; // 0.5 - 1.5 范围
-                const i3 = i * 3;
-                colorArray[i3] = Math.min(1.0, state.baseColors[i3] * brightness);
-                colorArray[i3 + 1] = Math.min(1.0, state.baseColors[i3 + 1] * brightness);
-                colorArray[i3 + 2] = Math.min(1.0, state.baseColors[i3 + 2] * brightness);
+            
+            if (state.weightMode) {
+                // 权重模式开启：启用bloom，设置较高的辉光强度
+                state.bloomEnabled = true;
+                if (state.bloomPass) {
+                    state.bloomPass.strength = 1.5; // 权重模式辉光强度
+                }
+                
+                // 初始化/更新密度权重
+                if (!state.densityWeights || state.densityWeights.length < maxPoints) {
+                    state.densityWeights = new Float32Array(maxPoints);
+                    for (let i = 0; i < pointCount; i++) {
+                        const i3 = i * 3;
+                        const x = positions.array[i3];
+                        const y = positions.array[i3 + 1];
+                        const z = positions.array[i3 + 2];
+                        const r = Math.sqrt(x * x + y * y + z * z);
+                        state.densityWeights[i] = Math.exp(-r / 10) * 0.7 + 0.3;
+                    }
+                }
+                
+                // 根据权重调整颜色亮度
+                for (let i = 0; i < processCount; i++) {
+                    const weight = state.densityWeights[i] || 0.5;
+                    const brightness = 0.5 + weight * 1.0; // 0.5 - 1.5 范围
+                    const i3 = i * 3;
+                    colorArray[i3] = Math.min(1.0, state.baseColors[i3] * brightness);
+                    colorArray[i3 + 1] = Math.min(1.0, state.baseColors[i3 + 1] * brightness);
+                    colorArray[i3 + 2] = Math.min(1.0, state.baseColors[i3 + 2] * brightness);
+                }
+                colors.needsUpdate = true;
+            } else {
+                // 权重模式关闭：恢复原始颜色（权重系数 = 1）
+                // 设置默认辉光强度
+                if (state.bloomPass) {
+                    state.bloomPass.strength = 0.8;
+                }
+                
+                // 只在颜色被修改过的情况下才恢复
+                if (state.weightModeWasEnabled) {
+                    for (let i = 0; i < processCount; i++) {
+                        const i3 = i * 3;
+                        colorArray[i3] = state.baseColors[i3];
+                        colorArray[i3 + 1] = state.baseColors[i3 + 1];
+                        colorArray[i3 + 2] = state.baseColors[i3 + 2];
+                    }
+                    colors.needsUpdate = true;
+                    state.weightModeWasEnabled = false;
+                }
             }
-            colors.needsUpdate = true;
+            
+            // 记录权重模式状态，用于下一帧检测关闭
+            if (state.weightMode) {
+                state.weightModeWasEnabled = true;
+            }
         }
     }
 
