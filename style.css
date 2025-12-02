@@ -1967,6 +1967,7 @@ canvas {
 .glass-list {
     height: 108px; /* 3个轨道高度，与清空按钮一对 */
     overflow-y: auto;
+    overflow-x: visible; /* 允许发光横向溢出 */
     background: var(--color-bg-primary);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
@@ -2027,7 +2028,7 @@ canvas {
 
 /* Compare Mode C (Blue) - Matches core.js compareColors[2] - 发光半径扩大一倍 */
 .glass-item.compare-c {
-    background: rgba(80, 255, 80, 0.25);
+    background: rgba(80, 80, 255, 0.25);
     color: #fff;
     box-shadow: 0 0 24px rgba(80, 80, 255, 0.3), 0 0 40px rgba(80, 80, 255, 0.15);
     border: 1px solid rgba(80, 80, 255, 0.6);

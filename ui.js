@@ -168,7 +168,7 @@ window.ElectronCloud.UI.init = function() {
     // 确保初始状态下坐标轴滑动条状态正确
     window.ElectronCloud.UI.updateAxesSizeRangeState();
     
-    // 确保初始状态下自动旋转按钮禁用（渲染开始前）
+    // 确保初始状态下自动旋转按钮可用（允许预设）
     window.ElectronCloud.UI.updateAutoRotateButtonState();
     
     // 确保初始状态下坐标系正确隐藏（farthestDistance=0时）
@@ -1504,6 +1504,19 @@ window.ElectronCloud.UI.onMultiselectToggle = function() {
         // 不递归调用onCompareToggle，避免重复清除
         const compareBox = document.getElementById('compare-box');
         if (compareBox) compareBox.classList.remove('active');
+        
+        // 【修复】从比照模式切换过来时，恢复相位开关的可用状态
+        const phaseToggle = document.getElementById('phase-toggle');
+        const phaseBox = document.getElementById('phase-box');
+        if (phaseToggle) {
+            phaseToggle.disabled = false;
+        }
+        if (phaseBox) {
+            phaseBox.classList.remove('disabled');
+        }
+        
+        // 重新启用显示开关功能
+        window.ElectronCloud.UI.enableAngular3DToggle();
     }
     
     const isMultiselect = ui.multiselectToggle && ui.multiselectToggle.checked;
@@ -2127,15 +2140,15 @@ window.ElectronCloud.UI.onGestureButtonClick = function() {
         if (state.camera) state.camera.up.set(0, 1, 0);
     }
     
-    // 3.2 停止自动旋转
+    // 3.2 停止自动旋转（但保持默认速度为10%）
     if (state.autoRotate) {
         state.autoRotate.enabled = false;
-        state.autoRotate.speed = 0;
+        state.autoRotate.speed = 1; // 默认速度为最大值的10%
     }
     const rotationSpeedRange = document.getElementById('rotation-speed-range');
     const rotationSpeedValue = document.getElementById('rotation-speed-value');
-    if (rotationSpeedRange) rotationSpeedRange.value = 0;
-    if (rotationSpeedValue) rotationSpeedValue.textContent = '0';
+    if (rotationSpeedRange) rotationSpeedRange.value = 1;
+    if (rotationSpeedValue) rotationSpeedValue.textContent = '1.00';
     
     // 3.3 重置旋转轴为默认值
     const rotationAxisX = document.getElementById('rotation-axis-x');
@@ -2182,27 +2195,20 @@ window.ElectronCloud.UI.onGestureButtonClick = function() {
     }
 };
 
-// 更新自动旋转按钮状态（只有在没有点云时才禁用）
+// 更新自动旋转按钮状态
+// 【修改】允许在渲染启动前点击开关预设状态，渲染后才实际旋转
 window.ElectronCloud.UI.updateAutoRotateButtonState = function() {
-    const state = window.ElectronCloud.state;
     const autoRotateToggle = document.getElementById('auto-rotate-toggle');
     const rotationFeatureBox = document.getElementById('rotation-feature-box');
     
-    // 只要有点云就可以启用自动旋转
-    const canEnable = state.points !== null && state.points !== undefined;
-    
+    // 始终允许用户切换（除非视角被锁定，那由互斥逻辑处理）
+    // 实际旋转逻辑在scene.js中已有state.points检查，确保渲染后才旋转
     if (autoRotateToggle) {
-        autoRotateToggle.disabled = !canEnable;
+        autoRotateToggle.disabled = false;
     }
-    
     if (rotationFeatureBox) {
-        if (canEnable) {
-            rotationFeatureBox.style.opacity = '';
-            rotationFeatureBox.style.pointerEvents = '';
-        } else {
-            rotationFeatureBox.style.opacity = '0.4';
-            rotationFeatureBox.style.pointerEvents = 'none';
-        }
+        rotationFeatureBox.style.opacity = '';
+        rotationFeatureBox.style.pointerEvents = '';
     }
     
     // 同时更新录制按钮状态

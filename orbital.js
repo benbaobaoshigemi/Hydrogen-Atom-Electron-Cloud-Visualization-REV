@@ -96,26 +96,15 @@ window.ElectronCloud.Orbital.startDrawing = function() {
         window.ElectronCloud.Scene.resetAllSceneObjectsRotation();
     }
     
-    // 【关键修复】渲染开始前，强制重置自动旋转状态，避免坐标轴偏移
+    // 【修改】渲染开始时，只重置totalAngle，保留用户预设的enabled状态
+    // 这样用户可以在渲染前点击"自动旋转"预设，渲染后自动应用
     if (state.autoRotate) {
-        state.autoRotate.enabled = false;
         state.autoRotate.totalAngle = 0;
-        // 同步UI状态
-        const autoRotateToggle = document.getElementById('auto-rotate-toggle');
-        const rotationFeatureBox = document.getElementById('rotation-feature-box');
-        if (autoRotateToggle) {
-            autoRotateToggle.checked = false;
-            autoRotateToggle.disabled = false; // 渲染开始后即可启用
-        }
-        if (rotationFeatureBox) {
-            rotationFeatureBox.classList.remove('active');
-            rotationFeatureBox.style.opacity = '';
-            rotationFeatureBox.style.pointerEvents = '';
-        }
-        // 录制按钮在自动旋转未启用时仍然禁用
-        const recordBtn = document.getElementById('record-rotation-btn');
-        if (recordBtn) recordBtn.disabled = true;
+        // 不重置enabled，保留用户预设的状态
     }
+    // 录制按钮在自动旋转未启用时仍然禁用
+    const recordBtn = document.getElementById('record-rotation-btn');
+    if (recordBtn) recordBtn.disabled = true;
     
     // 重置锁定视角的UI状态
     const lockButtons = document.querySelectorAll('.lock-axis-btn');
@@ -213,6 +202,14 @@ window.ElectronCloud.Orbital.clearDrawing = function() {
         option.title = '';
     });
     
+    // 【修复】同时清除自定义轨道列表的隐藏样式
+    const customList = document.getElementById('custom-orbital-list');
+    if (customList) {
+        Array.from(customList.children).forEach(item => {
+            item.classList.remove('orbital-hidden', 'compare-a', 'compare-b', 'compare-c', 'active');
+        });
+    }
+    
     // 刷新选择框样式，清除比照模式的颜色状态
     window.ElectronCloud.UI.refreshSelectStyles();
     
@@ -257,12 +254,23 @@ window.ElectronCloud.Orbital.clearDrawing = function() {
         rotationFeatureBox.classList.remove('active');
     }
     
+    // 【新增】重置闪烁模式 UI 状态
+    const heartbeatToggle = document.getElementById('heartbeat-toggle');
+    const flickerFeatureBox = document.getElementById('flicker-feature-box');
+    if (heartbeatToggle && heartbeatToggle.checked) {
+        heartbeatToggle.checked = false;
+        heartbeatToggle.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    if (flickerFeatureBox) {
+        flickerFeatureBox.classList.remove('active');
+    }
+    
     // 重置锁定视角的UI状态
     const lockButtons = document.querySelectorAll('.lock-axis-btn');
     lockButtons.forEach(btn => {
         btn.classList.remove('active', 'green');
     });
-    // 更新自动旋转按钮状态（重置后禁用）
+    // 更新自动旋转按钮状态（清除后保持可用，允许预设）
     window.ElectronCloud.UI.updateAutoRotateButtonState();
 };
 

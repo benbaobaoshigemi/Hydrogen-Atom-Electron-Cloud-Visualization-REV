@@ -68,7 +68,7 @@ window.ElectronCloud.Scene.init = function() {
     state.autoRotate = {
         enabled: false,
         axis: new THREE.Vector3(0, 1, 0),
-        speed: 0,
+        speed: 1, // 默认速度为最大值的10%
         axisHelper: null
     };
 
@@ -891,9 +891,9 @@ window.ElectronCloud.Scene.animate = function() {
                 colors.needsUpdate = true;
             } else {
                 // 权重模式关闭：恢复原始颜色（权重系数 = 1）
-                // 设置默认辉光强度
-                if (state.bloomPass) {
-                    state.bloomPass.strength = 0.8;
+                // 【修复】使用亮度滑动条设置的值，而不是固定像素
+                if (state.bloomPass && state.bloomStrength !== undefined) {
+                    state.bloomPass.strength = state.bloomStrength;
                 }
                 
                 // 只在颜色被修改过的情况下才恢复
