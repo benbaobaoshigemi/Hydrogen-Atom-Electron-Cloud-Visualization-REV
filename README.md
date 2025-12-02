@@ -790,6 +790,16 @@ python build_exe.py
 
 ---
 
+## 🛠️ 开发工具配置
+
+### GitHub Copilot Agent 模式
+
+如果您使用 VSCode 进行开发，可以配置 GitHub Copilot 的 Agent 模式来提高开发效率。Agent 模式允许 AI 直接对代码进行编辑。
+
+查看 [COPILOT_AGENT_SETUP.md](COPILOT_AGENT_SETUP.md) 了解如何设置免审批功能。
+
+---
+
 ## 📝 更新日志
 
 查看 [CHANGELOG.md](CHANGELOG.md) 了解版本更新历史。
