@@ -228,14 +228,14 @@ function buildRadialCDF(n, l, numPoints = 2000) {
 
     const rMax = Math.max(4 * n * n * A0, 50 * A0);
     const dr = rMax / numPoints;
-    
+
     const r = new Float64Array(numPoints + 1);
     const cdf = new Float64Array(numPoints + 1);
-    
+
     r[0] = 0;
     cdf[0] = 0;
     let cumulative = 0;
-    
+
     for (let i = 1; i <= numPoints; i++) {
         r[i] = i * dr;
         const P_prev = radialPDF(n, l, r[i - 1]);
@@ -243,14 +243,14 @@ function buildRadialCDF(n, l, numPoints = 2000) {
         cumulative += (P_prev + P_curr) * dr / 2;
         cdf[i] = cumulative;
     }
-    
+
     const totalProb = cdf[numPoints];
     if (totalProb > 0) {
         for (let i = 0; i <= numPoints; i++) {
             cdf[i] /= totalProb;
         }
     }
-    
+
     const result = { r, cdf, rMax, dr, numPoints, totalProb };
     _cdfCache[key] = result;
     return result;
@@ -261,9 +261,9 @@ function buildRadialCDF(n, l, numPoints = 2000) {
  */
 function sampleRadialExact(n, l) {
     const { r, cdf, numPoints } = buildRadialCDF(n, l);
-    
+
     const u = Math.random();
-    
+
     // 二分查找
     let lo = 0, hi = numPoints;
     while (lo < hi) {
@@ -274,15 +274,15 @@ function sampleRadialExact(n, l) {
             hi = mid;
         }
     }
-    
+
     // 线性插值
     const i = Math.max(0, lo - 1);
     const j = Math.min(numPoints, lo);
-    
+
     if (i === j || cdf[j] === cdf[i]) {
         return r[i];
     }
-    
+
     const t = (u - cdf[i]) / (cdf[j] - cdf[i]);
     return r[i] + t * (r[j] - r[i]);
 }
@@ -296,22 +296,22 @@ function findRadialPeaks(n, l, a0 = A0) {
     const peaks = [];
     const rmax = n * n * 3 * a0;
     const dr = 0.1 * a0;
-    
+
     let prevVal = 0;
     let prevPrevVal = 0;
-    
+
     for (let r = dr; r < rmax; r += dr) {
         const R = radialR(n, l, r);
         const val = r * r * R * R;
-        
+
         if (r > 2 * dr && prevVal > prevPrevVal && prevVal > val) {
             peaks.push({ r: r - dr, pdf: prevVal });
         }
-        
+
         prevPrevVal = prevVal;
         prevVal = val;
     }
-    
+
     return peaks;
 }
 
@@ -333,31 +333,31 @@ function getCachedPeaks(n, l) {
  */
 function getMultiPeakMixtureParams(n, l, a0 = A0) {
     const peaks = getCachedPeaks(n, l);
-    
+
     if (peaks.length === 0) {
         const r_peak = n * n * a0;
         return { components: [{ alpha: 2.0 / r_peak, weight: 1.0 }] };
     }
-    
+
     // 【改进】计算每个峰的权重（基于估计的积分贡献）
     // 积分贡献 ≈ 峰高 × 峰宽，峰宽与 r_peak 成正比
     let totalWeight = 0;
     const components = [];
-    
+
     for (const peak of peaks) {
         // 使用 pdf × r_peak 作为积分贡献的估计（更接近真实积分）
         const estimatedIntegral = peak.pdf * peak.r;
         const weight = estimatedIntegral;
         totalWeight += weight;
-        
+
         const alpha = 2.0 / peak.r;
         components.push({ alpha, weight, r_peak: peak.r, pdf: peak.pdf });
     }
-    
+
     for (const comp of components) {
         comp.weight /= totalWeight;
     }
-    
+
     return { components };
 }
 
@@ -366,16 +366,16 @@ function getMultiPeakMixtureParams(n, l, a0 = A0) {
  */
 function radialProposalPDF(r, n, l) {
     if (r <= 0) return 0;
-    
+
     const params = getMultiPeakMixtureParams(n, l);
     let pdf = 0;
-    
+
     for (const comp of params.components) {
         const alpha = comp.alpha;
         const norm = alpha * alpha * alpha / 2.0;
         pdf += comp.weight * norm * r * r * Math.exp(-alpha * r);
     }
-    
+
     return pdf;
 }
 
@@ -395,17 +395,17 @@ function sampleGamma3(alpha) {
  */
 function sampleRadialProposal(n, l) {
     const params = getMultiPeakMixtureParams(n, l);
-    
+
     const u = Math.random();
     let cumWeight = 0;
-    
+
     for (const comp of params.components) {
         cumWeight += comp.weight;
         if (u < cumWeight) {
             return sampleGamma3(comp.alpha);
         }
     }
-    
+
     return sampleGamma3(params.components[params.components.length - 1].alpha);
 }
 
@@ -431,10 +431,10 @@ function getMaxRadialWeight(n, l) {
     if (_maxWeightCache[key]) {
         return _maxWeightCache[key];
     }
-    
+
     const peaks = getCachedPeaks(n, l);
     let maxWeight = 1.0;
-    
+
     // 在每个峰附近搜索最大权重
     for (const peak of peaks) {
         const rPeak = peak.r;
@@ -442,13 +442,13 @@ function getMaxRadialWeight(n, l) {
         const rMax = rPeak * 2.5;
         const numSamples = 200;
         const dr = (rMax - rMin) / numSamples;
-        
+
         for (let i = 0; i <= numSamples; i++) {
             const r = rMin + i * dr;
             const R = radialR(n, l, r);
             const P_radial = r * r * R * R;
             const q_r = radialProposalPDF(r, n, l);
-            
+
             if (q_r > 1e-300) {
                 const w = P_radial / q_r;
                 if (w > maxWeight) {
@@ -457,11 +457,11 @@ function getMaxRadialWeight(n, l) {
             }
         }
     }
-    
+
     // 添加 20% 安全边际
     const result = maxWeight * 1.2;
     _maxWeightCache[key] = result;
-    
+
     return result;
 }
 
@@ -476,34 +476,34 @@ function getMaxRadialWeight(n, l) {
 function importanceSample(n, l, angKey, samplingBoundary) {
     // ==================== 第一步：径向采样（精确逆CDF） ====================
     let r = sampleRadialExact(n, l);
-    
+
     if (r > samplingBoundary * 2) {
         return null;
     }
-    
+
     // ==================== 第二步：角向采样 ====================
     const { theta, phi } = sampleUniformSphere();
-    
+
     const Y2 = realYlm_abs2(angKey.l, angKey.m, angKey.t, theta, phi);
     const w_angular = 4 * PI * Y2;
     // 【物理修正】角向权重上界的精确计算
     const maxAngularWeight = (angKey.m === 0) ? (2 * angKey.l + 1.2) : (2 * (2 * angKey.l + 1) + 0.5);
-    
+
     if (Math.random() * maxAngularWeight > w_angular) {
         return { x: 0, y: 0, z: 0, r, theta, phi, weight: w_angular, accepted: false };
     }
-    
+
     const sinTheta = Math.sin(theta);
     const x = r * sinTheta * Math.cos(phi);
     const y = r * sinTheta * Math.sin(phi);
     const z = r * Math.cos(theta);
-    
+
     // 摩尔纹抑制
     const dither = 0.01;
     const dx = (Math.random() - 0.5) * dither;
     const dy = (Math.random() - 0.5) * dither;
     const dz = (Math.random() - 0.5) * dither;
-    
+
     return { x: x + dx, y: y + dy, z: z + dz, r, theta, phi, weight: 1, accepted: true };
 }
 
@@ -545,13 +545,13 @@ function performSampling(config) {
     const samples = [];      // 用于图表的样本数据 [{r,theta,orbitalKey}]
     let farthestDistance = 0;
     let attempts = 0;
-    
+
     // 【关键修复】多轨道模式下，确保每个轨道获得相同数量的最终采样点
     // 而不是相同数量的尝试次数（因为不同轨道的接受率不同）
     const numOrbitals = paramsList.length;
     const orbitalPointCounts = new Array(numOrbitals).fill(0); // 每个轨道已采样的点数
     const targetPointsPerOrbital = Math.ceil(targetPoints / numOrbitals); // 每个轨道的目标点数
-    
+
     // 找到当前点数最少的轨道进行采样
     function getOrbitalWithFewestPoints() {
         let minIdx = 0;
@@ -567,22 +567,22 @@ function performSampling(config) {
 
     while (attempts < maxAttempts && points.length < targetPoints) {
         attempts++;
-        
+
         let accepted = false;
         let point = null;
         let x, y, z, r, theta, phi;
         let orbitalIndex = 0;
-        
+
         // 【关键修复】选择当前点数最少的轨道进行采样，确保各轨道点数均衡
         if (isIndependentMode && numOrbitals > 1) {
             orbitalIndex = getOrbitalWithFewestPoints();
         }
         const p = paramsList[orbitalIndex];
-        
+
         // 使用重要性采样（针对当前轨道优化）
         if (useImportanceSampling) {
             const result = importanceSample(p.n, p.l, p.angKey, samplingBoundary);
-            
+
             if (result && result.accepted) {
                 x = result.x;
                 y = result.y;
@@ -603,7 +603,7 @@ function performSampling(config) {
 
             theta = Math.acos(z / r);
             phi = Math.atan2(y, x);
-            
+
             if (isIndependentMode) {
                 const density = density3D_real(p.angKey, p.n, p.l, r, theta, phi);
                 const scaleFactor = Math.min(200, 3.0 * Math.pow(p.n, 3));
@@ -620,7 +620,7 @@ function performSampling(config) {
                 accepted = Math.random() < probability * scaleFactor;
             }
         }
-        
+
         if (accepted) {
             let r_color, g_color, b_color;
 
@@ -666,12 +666,12 @@ function performSampling(config) {
             point = { x, y, z, r: r_color, g: g_color, b: b_color, orbitalIndex: isIndependentMode ? orbitalIndex : -1 };
             samples.push({ r, theta, orbitalKey: isIndependentMode ? orbitals[orbitalIndex] : null });
             points.push(point);
-            
+
             // 【关键】更新该轨道的已采样点数计数
             if (isIndependentMode && numOrbitals > 1) {
                 orbitalPointCounts[orbitalIndex]++;
             }
-            
+
             if (r > farthestDistance) {
                 farthestDistance = r;
             }
@@ -688,7 +688,7 @@ function performSampling(config) {
 
 // ==================== Worker 消息处理 ====================
 
-self.onmessage = function(e) {
+self.onmessage = function (e) {
     const { type, data, taskId, sessionId } = e.data;
 
     switch (type) {

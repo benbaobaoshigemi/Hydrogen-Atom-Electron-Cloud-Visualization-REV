@@ -2,6 +2,19 @@
 window.ElectronCloud = window.ElectronCloud || {};
 window.ElectronCloud.UI = {};
 
+// 防抖函数，避免频繁触发
+window.ElectronCloud.UI.debounce = function(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+};
+
 // 初始化UI事件监听
 window.ElectronCloud.UI.init = function() {
     const ui = window.ElectronCloud.ui;
@@ -18,7 +31,7 @@ window.ElectronCloud.UI.init = function() {
     
     // 监听UI事件
     if (ui.axesSizeRange) {
-        ui.axesSizeRange.addEventListener('input', window.ElectronCloud.UI.onAxesSizeChange);
+        ui.axesSizeRange.addEventListener('input', window.ElectronCloud.UI.debounce(window.ElectronCloud.UI.onAxesSizeChange, 100));
     }
     
     if (ui.angular3dToggle) {
@@ -34,15 +47,15 @@ window.ElectronCloud.UI.init = function() {
     }
     
     if (ui.speedRange) {
-        ui.speedRange.addEventListener('input', window.ElectronCloud.UI.onSpeedChange);
+        ui.speedRange.addEventListener('input', window.ElectronCloud.UI.debounce(window.ElectronCloud.UI.onSpeedChange, 100));
     }
     
     if (ui.sizeRange) {
-        ui.sizeRange.addEventListener('input', window.ElectronCloud.UI.onSizeChange);
+        ui.sizeRange.addEventListener('input', window.ElectronCloud.UI.debounce(window.ElectronCloud.UI.onSizeChange, 100));
     }
     
     if (ui.opacityRange) {
-        ui.opacityRange.addEventListener('input', window.ElectronCloud.UI.onOpacityChange);
+        ui.opacityRange.addEventListener('input', window.ElectronCloud.UI.debounce(window.ElectronCloud.UI.onOpacityChange, 100));
     }
     
     if (ui.centerLock) {
@@ -220,7 +233,7 @@ window.ElectronCloud.UI.init = function() {
     
     // 旋转速度滑动条（只设置速度，不自动启动）
     if (rotationSpeedRange) {
-        rotationSpeedRange.addEventListener('input', (e) => {
+        rotationSpeedRange.addEventListener('input', window.ElectronCloud.UI.debounce((e) => {
             const state = window.ElectronCloud.state;
             const value = parseFloat(e.target.value);
             state.autoRotate.speed = value;
@@ -229,7 +242,7 @@ window.ElectronCloud.UI.init = function() {
             if (rotationSpeedValue) {
                 rotationSpeedValue.textContent = value.toFixed(2);
             }
-        });
+        }, 100));
     }
     
     // 自动旋转开关
@@ -423,18 +436,18 @@ window.ElectronCloud.UI.init = function() {
     
     // 闪烁频率
     if (flickerFrequencyRange) {
-        flickerFrequencyRange.addEventListener('input', (e) => {
+        flickerFrequencyRange.addEventListener('input', window.ElectronCloud.UI.debounce((e) => {
             const state = window.ElectronCloud.state;
             state.heartbeat.frequency = parseInt(e.target.value, 10);
-        });
+        }, 100));
     }
     
     // 最大亮度滑动条
     if (heartbeatMaxBrightness) {
-        heartbeatMaxBrightness.addEventListener('input', (e) => {
+        heartbeatMaxBrightness.addEventListener('input', window.ElectronCloud.UI.debounce((e) => {
             const state = window.ElectronCloud.state;
             state.heartbeat.maxBrightness = parseInt(e.target.value, 10);
-        });
+        }, 100));
     }
     
     // 权重模式开关 - 独立实验功能

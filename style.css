@@ -274,6 +274,7 @@ body {
     padding: 0;
     z-index: var(--z-panel);
     overflow: visible; /* 允许标签和手柄超出面板 */
+    will-change: transform; /* 优化动画性能 */
 }
 
 /* 面板玻璃边框效果 - 静态高光边框，左侧面板默认右侧、顶部、底部亮 */

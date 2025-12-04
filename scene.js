@@ -328,10 +328,12 @@ window.ElectronCloud.Scene.animate = function() {
                 window.ElectronCloud.Orbital.updateBackgroundChartData();
             }
             
-            // 如果数据面板可见，实时刷新图表
+            // 如果数据面板可见，异步刷新图表以避免阻塞动画循环
             const dataPanel = document.getElementById('data-panel');
             if (dataPanel && !dataPanel.classList.contains('collapsed')) {
-                window.ElectronCloud.Orbital.drawProbabilityChart(false);
+                setTimeout(() => {
+                    window.ElectronCloud.Orbital.drawProbabilityChart(false);
+                }, 0);
             }
         }
         
