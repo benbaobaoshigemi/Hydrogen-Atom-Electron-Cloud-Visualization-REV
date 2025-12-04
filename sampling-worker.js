@@ -507,6 +507,249 @@ function importanceSample(n, l, angKey, samplingBoundary) {
     return { x: x + dx, y: y + dy, z: z + dz, r, theta, phi, weight: 1, accepted: true };
 }
 
+// ==================== 自适应网格采样模块 ====================
+// 该模块提供通用的自适应采样能力，可处理任意形状的概率分布
+// 包括标准原子轨道、杂化轨道、以及任意线性组合
+
+const ADAPTIVE_GRID_SIZE = 24;  // 24³ = 13824 个网格单元，平衡精度与内存
+const WARMUP_SAMPLES = 800;     // 预热阶段采样点数
+const EXPLORATION_RATIO = 0.15; // 15% 用于探索新区域
+
+// 自适应采样状态（每次新采样任务时重置）
+let adaptiveGrid = {
+    cells: null,           // Float32Array，存储每个网格单元的累积概率
+    cellCounts: null,      // Uint32Array，每个单元被采中的次数
+    totalHits: 0,          // 总命中次数
+    boundary: 0,           // 当前网格覆盖的空间边界
+    isWarmedUp: false,     // 是否已完成预热
+    densityFunc: null      // 当前使用的密度函数
+};
+
+/**
+ * 初始化自适应网格
+ * @param {number} boundary - 采样空间边界（半径）
+ */
+function initAdaptiveGrid(boundary) {
+    const totalCells = ADAPTIVE_GRID_SIZE * ADAPTIVE_GRID_SIZE * ADAPTIVE_GRID_SIZE;
+    adaptiveGrid.cells = new Float32Array(totalCells);
+    adaptiveGrid.cellCounts = new Uint32Array(totalCells);
+    adaptiveGrid.totalHits = 0;
+    adaptiveGrid.boundary = boundary;
+    adaptiveGrid.isWarmedUp = false;
+
+    // 初始化为均匀分布（每个格子概率相等）
+    const uniformProb = 1.0 / totalCells;
+    for (let i = 0; i < totalCells; i++) {
+        adaptiveGrid.cells[i] = uniformProb;
+    }
+}
+
+/**
+ * 将空间坐标转换为网格索引
+ */
+function coordToGridIndex(x, y, z, boundary) {
+    const halfSize = boundary;
+    const cellSize = (2 * boundary) / ADAPTIVE_GRID_SIZE;
+
+    let ix = Math.floor((x + halfSize) / cellSize);
+    let iy = Math.floor((y + halfSize) / cellSize);
+    let iz = Math.floor((z + halfSize) / cellSize);
+
+    // 边界裁剪
+    ix = Math.max(0, Math.min(ADAPTIVE_GRID_SIZE - 1, ix));
+    iy = Math.max(0, Math.min(ADAPTIVE_GRID_SIZE - 1, iy));
+    iz = Math.max(0, Math.min(ADAPTIVE_GRID_SIZE - 1, iz));
+
+    return ix + iy * ADAPTIVE_GRID_SIZE + iz * ADAPTIVE_GRID_SIZE * ADAPTIVE_GRID_SIZE;
+}
+
+/**
+ * 将网格索引转换为单元格中心坐标
+ */
+function gridIndexToCoord(index, boundary) {
+    const cellSize = (2 * boundary) / ADAPTIVE_GRID_SIZE;
+    const halfSize = boundary;
+
+    const iz = Math.floor(index / (ADAPTIVE_GRID_SIZE * ADAPTIVE_GRID_SIZE));
+    const iy = Math.floor((index % (ADAPTIVE_GRID_SIZE * ADAPTIVE_GRID_SIZE)) / ADAPTIVE_GRID_SIZE);
+    const ix = index % ADAPTIVE_GRID_SIZE;
+
+    return {
+        x: (ix + 0.5) * cellSize - halfSize,
+        y: (iy + 0.5) * cellSize - halfSize,
+        z: (iz + 0.5) * cellSize - halfSize,
+        cellSize: cellSize
+    };
+}
+
+/**
+ * 更新网格概率分布（基于新采样到的点）
+ */
+function updateAdaptiveGrid(x, y, z, density) {
+    const index = coordToGridIndex(x, y, z, adaptiveGrid.boundary);
+
+    // 累加密度值
+    adaptiveGrid.cells[index] += density;
+    adaptiveGrid.cellCounts[index]++;
+    adaptiveGrid.totalHits++;
+}
+
+/**
+ * 归一化网格概率（预热结束后调用）
+ */
+function normalizeAdaptiveGrid() {
+    const totalCells = ADAPTIVE_GRID_SIZE * ADAPTIVE_GRID_SIZE * ADAPTIVE_GRID_SIZE;
+    let totalProb = 0;
+
+    for (let i = 0; i < totalCells; i++) {
+        totalProb += adaptiveGrid.cells[i];
+    }
+
+    if (totalProb > 0) {
+        for (let i = 0; i < totalCells; i++) {
+            adaptiveGrid.cells[i] /= totalProb;
+        }
+    }
+
+    adaptiveGrid.isWarmedUp = true;
+}
+
+/**
+ * 从自适应网格中采样一个单元格
+ * 使用逆变换采样（Inverse Transform Sampling）
+ */
+function sampleFromAdaptiveGrid() {
+    const totalCells = ADAPTIVE_GRID_SIZE * ADAPTIVE_GRID_SIZE * ADAPTIVE_GRID_SIZE;
+    const u = Math.random();
+
+    let cumulative = 0;
+    for (let i = 0; i < totalCells; i++) {
+        cumulative += adaptiveGrid.cells[i];
+        if (u <= cumulative) {
+            return i;
+        }
+    }
+
+    return totalCells - 1; // 边界情况
+}
+
+/**
+ * 通用密度函数接口 - 计算任意轨道组合在某点的概率密度
+ * @param {Array} orbitalConfigs - 轨道配置数组 [{params, coefficient}, ...]
+ * @param {number} r - 径向距离
+ * @param {number} theta - 极角
+ * @param {number} phi - 方位角
+ * @returns {number} - 概率密度 |Ψ|²
+ */
+function computeGeneralDensity(orbitalConfigs, r, theta, phi) {
+    if (!orbitalConfigs || orbitalConfigs.length === 0) return 0;
+
+    // 如果只有一个轨道且系数为1，直接使用原有公式（最优路径）
+    if (orbitalConfigs.length === 1 && orbitalConfigs[0].coefficient === 1) {
+        const p = orbitalConfigs[0].params;
+        return density3D_real(p.angKey, p.n, p.l, r, theta, phi);
+    }
+
+    // 计算波函数的线性叠加：Ψ = Σ c_i * Ψ_i
+    let psiReal = 0;
+    let psiImag = 0; // 预留，目前只用实球谐函数
+
+    for (const config of orbitalConfigs) {
+        const { params, coefficient } = config;
+        const R = radialR(params.n, params.l, r);
+        const Y = realYlm_value(params.angKey.l, params.angKey.m, params.angKey.t, theta, phi);
+        psiReal += coefficient * R * Y;
+    }
+
+    // 返回概率密度 |Ψ|²
+    return psiReal * psiReal + psiImag * psiImag;
+}
+
+/**
+ * 自适应采样 - 主入口函数
+ * 适用于任意形状的概率分布，包括杂化轨道
+ * @param {Array} orbitalConfigs - 轨道配置
+ * @param {number} samplingBoundary - 采样边界
+ * @returns {Object|null} - 采样结果
+ */
+function adaptiveSample(orbitalConfigs, samplingBoundary) {
+    const boundary = samplingBoundary;
+    const cellSize = (2 * boundary) / ADAPTIVE_GRID_SIZE;
+
+    let x, y, z;
+
+    // 决定是探索还是利用
+    if (!adaptiveGrid.isWarmedUp || Math.random() < EXPLORATION_RATIO) {
+        // 探索模式：均匀随机采样
+        x = (Math.random() - 0.5) * 2 * boundary;
+        y = (Math.random() - 0.5) * 2 * boundary;
+        z = (Math.random() - 0.5) * 2 * boundary;
+    } else {
+        // 利用模式：根据网格概率采样
+        const cellIndex = sampleFromAdaptiveGrid();
+        const center = gridIndexToCoord(cellIndex, boundary);
+
+        // 在选中的单元格内均匀采样
+        x = center.x + (Math.random() - 0.5) * cellSize;
+        y = center.y + (Math.random() - 0.5) * cellSize;
+        z = center.z + (Math.random() - 0.5) * cellSize;
+    }
+
+    // 计算球坐标
+    const r = Math.sqrt(x * x + y * y + z * z);
+    if (r < 1e-10) return null;
+
+    const theta = Math.acos(z / r);
+    const phi = Math.atan2(y, x);
+
+    // 计算该点的概率密度
+    const density = computeGeneralDensity(orbitalConfigs, r, theta, phi);
+
+    // 更新网格（无论是否接受，都要记录密度信息）
+    updateAdaptiveGrid(x, y, z, density);
+
+    // 接受-拒绝判定
+    // 使用动态缩放因子，基于当前已知的最大密度
+    const maxDensity = Math.max(1e-10, density * 2); // 保守估计
+    const acceptProb = density / maxDensity;
+
+    if (Math.random() < acceptProb) {
+        // 摩尔纹抑制
+        const dither = 0.01;
+        return {
+            x: x + (Math.random() - 0.5) * dither,
+            y: y + (Math.random() - 0.5) * dither,
+            z: z + (Math.random() - 0.5) * dither,
+            r, theta, phi,
+            weight: 1,
+            accepted: true
+        };
+    }
+
+    return { x: 0, y: 0, z: 0, r, theta, phi, weight: 0, accepted: false };
+}
+
+/**
+ * 判断是否为标准氢原子轨道（可使用高效重要性采样）
+ * @param {Object} config - 采样配置
+ * @returns {boolean}
+ */
+function isStandardHydrogenMode(config) {
+    // 条件1：必须有轨道配置
+    if (!config.orbitals || config.orbitals.length === 0) return false;
+
+    // 条件2：不是线性组合模式（未来的杂化模式会设置这个标志）
+    if (config.isLinearCombination) return false;
+
+    // 条件3：所有轨道都是已知的标准氢原子轨道
+    for (const key of config.orbitals) {
+        const params = orbitalParamsFromKey(key);
+        if (!params) return false;
+    }
+
+    return true;
+}
+
 // ==================== 采样逻辑 ====================
 
 // 是否启用重要性采样
