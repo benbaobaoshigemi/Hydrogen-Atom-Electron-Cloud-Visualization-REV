@@ -84,22 +84,15 @@ function Ylm_abs2(l, m, theta, phi) {
 }
 
 // 实球谐函数（模方）
+// 【关键修复】复用 realYlm_value 确保相位修正一致性
+// 与 physics.js 同步，防止采样/可视化方向不一致
 function realYlm_abs2(l, m, type, theta, phi) {
-    if (m === 0) {
-        return Ylm_abs2(l, 0, theta, phi);
-    }
-    const mm = Math.abs(m);
-    const y = Ylm_complex(l, mm, theta, phi);
-    if (type === 'c') {
-        const v = Math.SQRT2 * y.re;
-        return v * v;
-    } else {
-        const v = Math.SQRT2 * y.im;
-        return v * v;
-    }
+    const val = realYlm_value(l, m, type, theta, phi);
+    return val * val;
 }
 
 // 实球谐函数（值）
+// Chemistry Convention: Positive lobes align with positive axes
 function realYlm_value(l, m, type, theta, phi) {
     if (m === 0) {
         const y = Ylm_complex(l, 0, theta, phi);
@@ -107,10 +100,18 @@ function realYlm_value(l, m, type, theta, phi) {
     }
     const mm = Math.abs(m);
     const y = Ylm_complex(l, mm, theta, phi);
+
+    // 【关键修复】与 physics.js 同步：对 l=1 (p轨道) 应用相位修正
+    // 确保正瓣指向坐标轴正方向
+    let signFactor = 1.0;
+    if (l === 1) {
+        signFactor = -1.0;
+    }
+
     if (type === 'c') {
-        return Math.SQRT2 * y.re;
+        return Math.SQRT2 * y.re * signFactor;
     } else {
-        return Math.SQRT2 * y.im;
+        return Math.SQRT2 * y.im * signFactor;
     }
 }
 
@@ -150,17 +151,17 @@ function density3D_real(angKey, n, l, r, theta, phi, Z = 1, a0 = A0) {
  */
 function hybridDensity3D(paramsList, r, theta, phi) {
     if (!paramsList || paramsList.length === 0) return 0;
-    
+
     let psiReal = 0;
     const defaultCoeff = 1.0 / Math.sqrt(paramsList.length);
-    
+
     for (const p of paramsList) {
         const coeff = p.coefficient !== undefined ? p.coefficient : defaultCoeff;
         const R = radialR(p.n, p.l, r);
         const Y = realYlm_value(p.angKey.l, p.angKey.m, p.angKey.t, theta, phi);
         psiReal += coeff * R * Y;
     }
-    
+
     return psiReal * psiReal;
 }
 
@@ -169,21 +170,21 @@ function hybridDensity3D(paramsList, r, theta, phi) {
  */
 function hybridEstimateMaxDensity(paramsList, rMax, numSamples = 1000) {
     if (!paramsList || paramsList.length === 0) return 1;
-    
+
     let maxDensity = 0;
-    
+
     for (let i = 0; i < numSamples; i++) {
         const r = Math.random() * rMax * Math.pow(Math.random(), 0.5);
         const cosTheta = 2 * Math.random() - 1;
         const theta = Math.acos(cosTheta);
         const phi = 2 * PI * Math.random();
-        
+
         const density = hybridDensity3D(paramsList, r, theta, phi);
         if (density > maxDensity) {
             maxDensity = density;
         }
     }
-    
+
     return maxDensity * 1.5;
 }
 
@@ -995,6 +996,177 @@ function performSampling(config) {
 
 // ==================== 杂化模式采样 ====================
 
+// CDF 缓存（用于杂化轨道高效采样）
+const _hybridCdfCache = {};
+
+/**
+ * 构建杂化轨道的径向CDF
+ */
+function buildHybridRadialCDF(paramsList, numPoints = 2000) {
+    if (!paramsList || paramsList.length === 0) return null;
+
+    const key = paramsList.map(p => `${p.n}_${p.l}`).join('|');
+    if (_hybridCdfCache[key]) {
+        return _hybridCdfCache[key];
+    }
+
+    const numOrbitals = paramsList.length;
+    const defaultCoeff = 1.0 / Math.sqrt(numOrbitals);
+
+    // 确定最大积分范围
+    let rMax = 0;
+    for (const p of paramsList) {
+        rMax = Math.max(rMax, 4 * p.n * p.n * A0);
+    }
+    rMax = Math.max(rMax, 50 * A0);
+
+    const dr = rMax / numPoints;
+    const r = new Float64Array(numPoints + 1);
+    const cdf = new Float64Array(numPoints + 1);
+
+    // 数值积分
+    r[0] = 0;
+    cdf[0] = 0;
+    let cumulative = 0;
+
+    for (let i = 1; i <= numPoints; i++) {
+        r[i] = i * dr;
+
+        let P_prev = 0, P_curr = 0;
+        const r_prev = r[i - 1];
+        const r_curr = r[i];
+
+        for (const p of paramsList) {
+            const coeff = p.coefficient !== undefined ? p.coefficient : defaultCoeff;
+            const c2 = coeff * coeff;
+
+            const R_prev = radialR(p.n, p.l, r_prev);
+            const R_curr = radialR(p.n, p.l, r_curr);
+
+            P_prev += c2 * r_prev * r_prev * R_prev * R_prev;
+            P_curr += c2 * r_curr * r_curr * R_curr * R_curr;
+        }
+
+        cumulative += (P_prev + P_curr) * dr / 2;
+        cdf[i] = cumulative;
+    }
+
+    // 归一化
+    const totalProb = cdf[numPoints];
+    if (totalProb > 0) {
+        for (let i = 0; i <= numPoints; i++) {
+            cdf[i] /= totalProb;
+        }
+    }
+
+    const result = { r, cdf, rMax, dr, numPoints, totalProb };
+    _hybridCdfCache[key] = result;
+    return result;
+}
+
+/**
+ * 从均匀球面分布采样角度
+ */
+function sampleUniformSphere() {
+    const phi = 2 * PI * Math.random();
+    const cosTheta = 2 * Math.random() - 1;
+    const theta = Math.acos(cosTheta);
+    return { theta, phi };
+}
+
+/**
+ * 高效杂化轨道采样（基于精确径向CDF + 角向接受-拒绝）
+ */
+function hybridPreciseSample(paramsList, samplingBoundary) {
+    if (!paramsList || paramsList.length === 0) return null;
+
+    const numOrbitals = paramsList.length;
+    const defaultCoeff = 1.0 / Math.sqrt(numOrbitals);
+
+    // 构建/获取杂化CDF
+    const cdfData = buildHybridRadialCDF(paramsList);
+    if (!cdfData) return null;
+
+    // 第一步：从杂化径向CDF精确采样
+    const { r: rTable, cdf, numPoints } = cdfData;
+    const u = Math.random();
+
+    // 二分查找
+    let lo = 0, hi = numPoints;
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (cdf[mid] < u) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+
+    const i = Math.max(0, lo - 1);
+    const j = Math.min(numPoints, lo);
+    let r;
+    if (i === j || cdf[j] === cdf[i]) {
+        r = rTable[i];
+    } else {
+        const t = (u - cdf[i]) / (cdf[j] - cdf[i]);
+        r = rTable[i] + t * (rTable[j] - rTable[i]);
+    }
+
+    // 边界检查
+    if (r > samplingBoundary * 2 || r < 1e-10) {
+        return { x: 0, y: 0, z: 0, r, theta: 0, phi: 0, psi: 0, accepted: false };
+    }
+
+    // 第二步：均匀球面采样角度
+    const { theta, phi } = sampleUniformSphere();
+
+    // 第三步：计算角向权重
+    let psi = 0;
+    let radialSum2 = 0;
+
+    for (const p of paramsList) {
+        const coeff = p.coefficient !== undefined ? p.coefficient : defaultCoeff;
+        const R = radialR(p.n, p.l, r);
+        const Y = realYlm_value(p.angKey.l, p.angKey.m, p.angKey.t, theta, phi);
+        psi += coeff * R * Y;
+        radialSum2 += coeff * coeff * R * R;
+    }
+
+    const angularFactor = psi * psi;
+    const expectedFactor = radialSum2 / (4 * PI);
+
+    if (expectedFactor < 1e-300) {
+        return { x: 0, y: 0, z: 0, r, theta, phi, psi, accepted: false };
+    }
+
+    const angularWeight = angularFactor / expectedFactor;
+    // 【关键修复】角向权重上界应与轨道数量成正比
+    // 当多个轨道的球谐函数相干叠加时，|Σ c_i Y_i|² 可能远大于单轨道情况
+    // 旧值 8π 导致高密度区域样本被错误拒绝
+    const maxAngularWeight = 4 * PI * (numOrbitals + 2);
+
+    // 角向接受-拒绝
+    if (Math.random() * maxAngularWeight > angularWeight) {
+        return { x: 0, y: 0, z: 0, r, theta, phi, psi, accepted: false };
+    }
+
+    // 采样成功
+    const sinTheta = Math.sin(theta);
+    const x = r * sinTheta * Math.cos(phi);
+    const y = r * sinTheta * Math.sin(phi);
+    const z = r * Math.cos(theta);
+
+    const dither = 0.01;
+    return {
+        x: x + (Math.random() - 0.5) * dither,
+        y: y + (Math.random() - 0.5) * dither,
+        z: z + (Math.random() - 0.5) * dither,
+        r, theta, phi,
+        psi,
+        accepted: true
+    };
+}
+
 /**
  * 杂化模式采样函数
  * 
@@ -1003,7 +1175,7 @@ function performSampling(config) {
  * 概率密度为 |Ψ_hybrid|² = |Σ c_i × R_i(r) × Y_i(θ,φ)|²
  * 
  * 【采样方法】
- * 使用最基础的拒绝采样法
+ * 优先使用高效的精确CDF方法，回退到基础拒绝采样
  * 
  * @param {Array} paramsList - 轨道参数列表
  * @param {number} samplingBoundary - 采样边界
@@ -1013,71 +1185,27 @@ function performSampling(config) {
  * @returns {Object} - 采样结果
  */
 function performHybridSampling(paramsList, samplingBoundary, maxAttempts, targetPoints, phaseOn) {
-    const samplingVolumeSize = samplingBoundary * 2;
     const points = [];
     const samples = [];
     let farthestDistance = 0;
     let attempts = 0;
 
-    // 计算最大 rMax 来估计最大密度
-    let maxRmax = 0;
-    for (const p of paramsList) {
-        const rmax = 15 * p.n * p.n;
-        if (rmax > maxRmax) maxRmax = rmax;
-    }
-
-    // 初始化或更新最大密度缓存
-    if (hybridMaxDensityCache === null) {
-        hybridMaxDensityCache = hybridEstimateMaxDensity(paramsList, maxRmax, 2000);
-    }
-
     const defaultCoeff = 1.0 / Math.sqrt(paramsList.length);
 
+    // 尝试使用高效采样方法
     while (attempts < maxAttempts && points.length < targetPoints) {
         attempts++;
 
-        // 均匀随机采样
-        const x = (Math.random() - 0.5) * samplingVolumeSize;
-        const y = (Math.random() - 0.5) * samplingVolumeSize;
-        const z = (Math.random() - 0.5) * samplingVolumeSize;
-        const r = Math.sqrt(x * x + y * y + z * z);
+        const result = hybridPreciseSample(paramsList, samplingBoundary);
 
-        if (r < 1e-10) continue;
+        if (!result || !result.accepted) continue;
 
-        const theta = Math.acos(z / r);
-        const phi = Math.atan2(y, x);
-
-        // 计算杂化轨道概率密度
-        const density = hybridDensity3D(paramsList, r, theta, phi);
-
-        // 拒绝采样
-        const acceptProb = density / hybridMaxDensityCache;
-
-        // 动态调整最大密度估计
-        if (acceptProb > 1.0) {
-            hybridMaxDensityCache = density * 1.5;
-        }
-
-        if (Math.random() > acceptProb) {
-            continue; // 拒绝
-        }
-
-        // 接受：计算颜色
+        // 计算颜色
         let r_color, g_color, b_color;
-
         if (phaseOn) {
-            // 计算杂化波函数的值
-            let psi = 0;
-            for (const p of paramsList) {
-                const coeff = p.coefficient !== undefined ? p.coefficient : defaultCoeff;
-                const R = radialR(p.n, p.l, r);
-                const Y = realYlm_value(p.angKey.l, p.angKey.m, p.angKey.t, theta, phi);
-                psi += coeff * R * Y;
-            }
-
-            if (psi > 0) {
+            if (result.psi > 0) {
                 r_color = 1; g_color = 0.2; b_color = 0.2;
-            } else if (psi < 0) {
+            } else if (result.psi < 0) {
                 r_color = 0.2; g_color = 0.2; b_color = 1;
             } else {
                 r_color = 1; g_color = 1; b_color = 1;
@@ -1086,23 +1214,20 @@ function performHybridSampling(paramsList, samplingBoundary, maxAttempts, target
             r_color = 1; g_color = 1; b_color = 1;
         }
 
-        // 添加抖动
-        const dither = 0.01;
-        const point = {
-            x: x + (Math.random() - 0.5) * dither,
-            y: y + (Math.random() - 0.5) * dither,
-            z: z + (Math.random() - 0.5) * dither,
+        points.push({
+            x: result.x,
+            y: result.y,
+            z: result.z,
             r: r_color,
             g: g_color,
             b: b_color,
-            orbitalIndex: -1 // 杂化模式
-        };
+            orbitalIndex: -1
+        });
 
-        points.push(point);
-        samples.push({ r, theta, orbitalKey: null });
+        samples.push({ r: result.r, theta: result.theta, orbitalKey: null });
 
-        if (r > farthestDistance) {
-            farthestDistance = r;
+        if (result.r > farthestDistance) {
+            farthestDistance = result.r;
         }
     }
 

@@ -426,7 +426,7 @@ function isInertiaActive() {
 // ========================================
 // 物理循环（惯性）
 // ========================================
-function physicsLoop() {
+function gestureInertiaLoop() {
     if (!webcamRunning) return;
 
     // 只有在空闲状态才应用惯性
@@ -441,7 +441,7 @@ function physicsLoop() {
         if (Math.abs(rotationVelocity.y) < CONFIG.minVelocity) rotationVelocity.y = 0;
     }
 
-    requestAnimationFrame(physicsLoop);
+    requestAnimationFrame(gestureInertiaLoop);
 }
 
 // ========================================
@@ -819,7 +819,7 @@ window.ElectronCloud.Gesture.start = async function () {
 
         // 启动循环
         requestAnimationFrame(predictWebcam);
-        requestAnimationFrame(physicsLoop);
+        requestAnimationFrame(gestureInertiaLoop);
 
         // 更新 UI
         const btn = document.getElementById('gesture-control-btn');

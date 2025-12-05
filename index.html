@@ -329,13 +329,14 @@
         <div class="panel-tab" id="data-panel-tab" title="点击展开数据面板">数据 ▸</div>
         <div class="panel-content">
             <div class="panel-header">
-                <h3>数据</h3>
+                <h3 id="data-panel-title">数据</h3>
                 <div>
                     <button id="chart-enlarge-btn" title="放大/还原图表">⤢</button>
                     <button id="data-collapse-btn" class="collapse-btn" title="收起">◂</button>
                 </div>
             </div>
-            <div class="panel-body">
+            <!-- 数据模式内容（非杂化模式显示） -->
+            <div class="panel-body" id="data-mode-content">
                 <div class="control-group">
                     <label for="plot-type-select">概率密度图</label>
                     <select id="plot-type-select">
@@ -347,8 +348,22 @@
                     <label for="angular-3d-toggle">3D角向形状</label>
                     <input type="checkbox" id="angular-3d-toggle">
                 </div>
+                <div class="control-group">
+                    <label for="contour-3d-toggle">轨道轮廓 (95%)</label>
+                    <input type="checkbox" id="contour-3d-toggle">
+                </div>
                 <div class="chart-container">
                     <canvas id="probability-chart"></canvas>
+                </div>
+            </div>
+            <!-- 杂化模式内容（杂化模式显示） -->
+            <div class="panel-body" id="hybrid-mode-content" style="display: none;">
+                <div class="control-group">
+                    <label for="hybrid-contour-toggle">轨道轮廓 (95%)</label>
+                    <input type="checkbox" id="hybrid-contour-toggle">
+                </div>
+                <div id="hybrid-orbital-controls">
+                    <!-- 动态生成的杂化轨道按钮将放置于此 -->
                 </div>
             </div>
         </div>
@@ -371,7 +386,7 @@
     <script src="orbital.js?v=13"></script>
     <script src="sampling.js?v=14"></script>
     <script src="visualization.js?v=12"></script>
-    <script src="ui.js?v=11"></script>
+    <script src="ui.js?v=18"></script>
     <script src="one_euro_filter.js"></script>
     <!-- gesture_v2.js v4.0: 捏合旋转模式 - 更稳定的手势控制 -->
     <script type="module" src="gesture_v2.js?v=4.1"></script>

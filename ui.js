@@ -3,7 +3,7 @@ window.ElectronCloud = window.ElectronCloud || {};
 window.ElectronCloud.UI = {};
 
 // 防抖函数，避免频繁触发
-window.ElectronCloud.UI.debounce = function(func, wait) {
+window.ElectronCloud.UI.debounce = function (func, wait) {
     let timeout;
     return function executedFunction(...args) {
         const later = () => {
@@ -16,71 +16,125 @@ window.ElectronCloud.UI.debounce = function(func, wait) {
 };
 
 // 初始化UI事件监听
-window.ElectronCloud.UI.init = function() {
+window.ElectronCloud.UI.init = function () {
     const ui = window.ElectronCloud.ui;
-    
+
     // 初始化顶部模式切换栏（必须在最开始调用，绑定点击事件）
     if (window.ElectronCloud.UI.initModeSwitcher) {
         window.ElectronCloud.UI.initModeSwitcher();
     }
-    
+
+    // 初始化杂化轨道控制面板
+    if (window.ElectronCloud.UI.initHybridPanel) {
+        window.ElectronCloud.UI.initHybridPanel();
+    }
+
     // 初始化自定义轨道列表
     if (window.ElectronCloud.UI.initCustomOrbitalList) {
         window.ElectronCloud.UI.initCustomOrbitalList();
     }
-    
+
     // 初始化通用自定义下拉框
     if (window.ElectronCloud.UI.initCustomSelects) {
         window.ElectronCloud.UI.initCustomSelects();
     }
-    
+
     // 监听UI事件
     if (ui.axesSizeRange) {
         ui.axesSizeRange.addEventListener('input', window.ElectronCloud.UI.onAxesSizeChange);
     }
-    
+
     if (ui.angular3dToggle) {
         ui.angular3dToggle.addEventListener('change', window.ElectronCloud.UI.onAngularOverlayToggle);
     }
-    
+
+    // 95%等值面轮廓开关
+    const contour3dToggle = document.getElementById('contour-3d-toggle');
+    if (contour3dToggle) {
+        contour3dToggle.addEventListener('change', window.ElectronCloud.UI.onContourOverlayToggle);
+    }
+
+    // 杂化模式轨道轮廓开关
+    const hybridContourToggle = document.getElementById('hybrid-contour-toggle');
+    if (hybridContourToggle) {
+        hybridContourToggle.addEventListener('change', window.ElectronCloud.UI.onHybridContourToggle);
+    }
+
     if (ui.orbitalSelect) {
         ui.orbitalSelect.addEventListener('change', window.ElectronCloud.UI.onOrbitalSelectChange);
     }
-    
+
     if (ui.startButton) {
         ui.startButton.addEventListener('click', window.ElectronCloud.Orbital.startDrawing);
     }
-    
+
     if (ui.speedRange) {
         ui.speedRange.addEventListener('input', window.ElectronCloud.UI.onSpeedChange);
     }
-    
+
     if (ui.sizeRange) {
         ui.sizeRange.addEventListener('input', window.ElectronCloud.UI.onSizeChange);
     }
-    
+
     if (ui.opacityRange) {
         ui.opacityRange.addEventListener('input', window.ElectronCloud.UI.onOpacityChange);
     }
-    
+
     if (ui.centerLock) {
         ui.centerLock.addEventListener('change', window.ElectronCloud.UI.onCenterLockChange);
     }
-    
+
     if (ui.pauseButton) {
         ui.pauseButton.addEventListener('click', window.ElectronCloud.UI.onPauseToggle);
     }
-    
+
     if (ui.clearButton) {
         ui.clearButton.addEventListener('click', () => {
-            // 重置整个状态（包括pointCount）
+            const state = window.ElectronCloud.state;
+
+            // 【用户需求】在多选模式和杂化模式下，重置不应清除轨道选择
+            // 保存当前模式和选择
+            const savedOrbitals = [...state.currentOrbitals];
+            const savedIsHybridMode = state.isHybridMode;
+            const isMultiOrHybrid = (savedOrbitals.length > 1 || savedIsHybridMode);
+
+            // 重置状态（清除采样数据等）
             window.ElectronCloud.resetState();
             window.ElectronCloud.Orbital.clearDrawing();
+
+            // 如果是多选或杂化模式，恢复轨道选择
+            if (isMultiOrHybrid && savedOrbitals.length > 0) {
+                state.currentOrbitals = savedOrbitals;
+                state.isHybridMode = savedIsHybridMode;
+                // 恢复UI状态
+                if (ui.orbitalSelect) {
+                    Array.from(ui.orbitalSelect.options).forEach(option => {
+                        if (savedOrbitals.includes(option.value)) {
+                            option.classList.add('force-selected');
+                            // 【关键修复】确保原生 select 的选中状态也同步，
+                            // 这样 updateHybridOrbitalButtons 才能正确读取 selectedOptions
+                            option.selected = true;
+                        }
+                    });
+                }
+                window.ElectronCloud.UI.updateCustomListVisuals();
+                window.ElectronCloud.UI.updateSelectionCount();
+
+                // 【关键修复】如果恢复了杂化模式，需要重置并刷新杂化面板（生成按钮等）
+                if (savedIsHybridMode && window.ElectronCloud.UI.resetHybridPanel) {
+                    window.ElectronCloud.UI.resetHybridPanel();
+                }
+            }
+
             if (window.DataPanel && window.DataPanel.reset) {
                 window.DataPanel.reset();
             }
             // 更新模式切换栏状态
             window.ElectronCloud.UI.updateModeSwitcherState();
+            // 更新3D角向形状和轮廓开关状态（因pointCount归零，应自动禁用）
+            if (window.ElectronCloud.UI.updateAngular3DToggleState) {
+                window.ElectronCloud.UI.updateAngular3DToggleState();
+            }
         });
     }
 
@@ -139,13 +193,13 @@ window.ElectronCloud.UI.init = function() {
             }
         });
     }
-    
+
     // 手势控制按钮逻辑
     const gestureBtn = document.getElementById('gesture-control-btn');
     if (gestureBtn) {
         gestureBtn.addEventListener('click', window.ElectronCloud.UI.onGestureButtonClick);
     }
-    
+
     if (ui.plotTypeSelect) {
         ui.plotTypeSelect.addEventListener('change', () => {
             window.ElectronCloud.Orbital.drawProbabilityChart();
@@ -161,7 +215,7 @@ window.ElectronCloud.UI.init = function() {
     if (ui.compareToggle && ui.orbitalSelect) {
         ui.compareToggle.addEventListener('change', window.ElectronCloud.UI.onCompareToggle);
     }
-    
+
     // 设置多选模式的交互
     if (ui.orbitalSelect) {
         window.ElectronCloud.UI.setupMultiselectMode();
@@ -171,36 +225,36 @@ window.ElectronCloud.UI.init = function() {
     if (ui.clearAllSelectionsBtn) {
         ui.clearAllSelectionsBtn.addEventListener('click', window.ElectronCloud.UI.clearAllSelections);
     }
-    
+
     // 为所有 mode-toggle-box 添加点击切换逻辑
     window.ElectronCloud.UI.setupModeToggleBoxes();
-    
+
     // 强制同步一次多选状态
     window.ElectronCloud.UI.onMultiselectToggle();
-    
+
     // 初始化单选模式的选中样式
     window.ElectronCloud.UI.updateSingleSelectStyle();
-    
+
     // 确保初始状态下显示开关的状态正确
     window.ElectronCloud.UI.updateAngular3DToggleState();
-    
+
     // 确保初始状态下清空按钮状态正确
     window.ElectronCloud.UI.updateClearAllSelectionsState();
-    
+
     // 确保初始状态下坐标轴滑动条状态正确
     window.ElectronCloud.UI.updateAxesSizeRangeState();
-    
+
     // 确保初始状态下模式切换栏状态正确
     window.ElectronCloud.UI.updateModeSwitcherState();
-    
+
     // 确保初始状态下自动旋转按钮可用（允许预设）
     window.ElectronCloud.UI.updateAutoRotateButtonState();
-    
+
     // 确保初始状态下坐标系正确隐藏（farthestDistance=0时）
     if (window.ElectronCloud.ui.axesSizeRange) {
         window.ElectronCloud.UI.onAxesSizeChange({ target: window.ElectronCloud.ui.axesSizeRange });
     }
-    
+
     // 视图面板折叠逻辑
     const viewPanel = document.getElementById('view-panel');
     const viewCollapseBtn = document.getElementById('view-collapse-btn');
@@ -215,22 +269,22 @@ window.ElectronCloud.UI.init = function() {
             viewPanel.classList.remove('collapsed');
         });
     }
-    
+
     // 旋转轴输入
     const rotationAxisX = document.getElementById('rotation-axis-x');
     const rotationAxisY = document.getElementById('rotation-axis-y');
     const rotationAxisZ = document.getElementById('rotation-axis-z');
     const rotationSpeedRange = document.getElementById('rotation-speed-range');
     const rotationSpeedValue = document.getElementById('rotation-speed-value');
-    
+
     const updateRotationAxis = () => {
         const state = window.ElectronCloud.state;
         const x = parseFloat(rotationAxisX?.value) || 0;
         const y = parseFloat(rotationAxisY?.value) || 0;
         const z = parseFloat(rotationAxisZ?.value) || 0;
-        
+
         state.autoRotate.axis.set(x, y, z);
-        
+
         // 如果有有效轴，显示辅助线
         if (x !== 0 || y !== 0 || z !== 0) {
             if (window.ElectronCloud.Scene.showRotationAxisHelper) {
@@ -238,11 +292,11 @@ window.ElectronCloud.UI.init = function() {
             }
         }
     };
-    
+
     if (rotationAxisX) rotationAxisX.addEventListener('change', updateRotationAxis);
     if (rotationAxisY) rotationAxisY.addEventListener('change', updateRotationAxis);
     if (rotationAxisZ) rotationAxisZ.addEventListener('change', updateRotationAxis);
-    
+
     // 旋转速度滑动条（只设置速度，不自动启动）
     if (rotationSpeedRange) {
         rotationSpeedRange.addEventListener('input', (e) => {
@@ -250,36 +304,36 @@ window.ElectronCloud.UI.init = function() {
             const value = parseFloat(e.target.value);
             state.autoRotate.speed = value;
             // 不再自动启动，由开关控制
-            
+
             if (rotationSpeedValue) {
                 rotationSpeedValue.textContent = value.toFixed(2);
             }
         });
     }
-    
+
     // 自动旋转开关
     const autoRotateToggle = document.getElementById('auto-rotate-toggle');
     const rotationFeatureBox = document.getElementById('rotation-feature-box');
     const recordRotationBtn = document.getElementById('record-rotation-btn');
-    
+
     if (autoRotateToggle) {
         autoRotateToggle.addEventListener('change', (e) => {
             const state = window.ElectronCloud.state;
             state.autoRotate.enabled = e.target.checked;
-            
+
             // 功能框激活状态变绿
             if (rotationFeatureBox) {
                 rotationFeatureBox.classList.toggle('active', e.target.checked);
             }
-            
+
             // 更新录制按钮状态
             window.ElectronCloud.UI.updateRecordButtonState();
-            
+
             // 互斥逻辑：自动旋转启用时，禁用锁定视角
             window.ElectronCloud.UI.updateRotationLockMutualExclusion();
         });
     }
-    
+
     // 点击 rotation-feature-box 切换开关
     if (rotationFeatureBox) {
         rotationFeatureBox.addEventListener('click', (e) => {
@@ -289,7 +343,7 @@ window.ElectronCloud.UI.init = function() {
             }
         });
     }
-    
+
     // 录制旋转视频按钮
     if (recordRotationBtn) {
         recordRotationBtn.addEventListener('click', (e) => {
@@ -297,7 +351,7 @@ window.ElectronCloud.UI.init = function() {
             window.ElectronCloud.UI.toggleRotationRecording();
         });
     }
-    
+
     // 闪烁模式开关
     const heartbeatToggle = document.getElementById('heartbeat-toggle');
     const flickerSettingsBtn = document.getElementById('flicker-settings-btn');
@@ -306,21 +360,21 @@ window.ElectronCloud.UI.init = function() {
     const flickerModeSelect = document.getElementById('flicker-mode-select');
     const flickerFrequencyRange = document.getElementById('flicker-frequency-range');
     const heartbeatMaxBrightness = document.getElementById('heartbeat-max-brightness');
-    
+
     if (heartbeatToggle) {
         heartbeatToggle.addEventListener('change', (e) => {
             const state = window.ElectronCloud.state;
             state.heartbeat.enabled = e.target.checked;
             console.log('闪烁模式:', e.target.checked, 'bloomPass:', !!state.bloomPass);
-            
+
             // 功能框激活状态变绿
             if (flickerFeatureBox) {
                 flickerFeatureBox.classList.toggle('active', e.target.checked);
             }
-            
+
             // 闪烁模式下仍然允许调节亮度（不再禁用滑动条）
             // 亮度滑动条控制点云基础透明度，闪烁效果在此基础上叠加
-            
+
             // 如果关闭闪烁模式，恢复bloom状态、原始颜色和透明度
             if (!e.target.checked && state.bloomPass) {
                 // 【修复】根据亮度滑块当前值恢复辉光状态
@@ -337,7 +391,7 @@ window.ElectronCloud.UI.init = function() {
                     state.bloomPass.strength = 0;
                     state.bloomEnabled = false;
                 }
-                
+
                 // 【修复】根据亮度滑块当前值恢复透明度
                 if (state.points && state.points.material) {
                     if (currentValue <= 50) {
@@ -349,7 +403,7 @@ window.ElectronCloud.UI.init = function() {
                     }
                     state.points.material.needsUpdate = true;
                 }
-                
+
                 // 恢复星空模式下修改的原始颜色
                 if (state.baseColors && state.points && state.points.geometry) {
                     const colors = state.points.geometry.attributes.color;
@@ -370,7 +424,7 @@ window.ElectronCloud.UI.init = function() {
     } else {
         console.error('heartbeat-toggle 元素未找到');
     }
-    
+
     // 点击 flicker-feature-box 切换闪烁模式
     if (flickerFeatureBox) {
         flickerFeatureBox.addEventListener('click', (e) => {
@@ -380,7 +434,7 @@ window.ElectronCloud.UI.init = function() {
             }
         });
     }
-    
+
     // 闪烁设置二级面板
     if (flickerSettingsBtn && flickerSubmenu) {
         flickerSettingsBtn.addEventListener('click', (e) => {
@@ -392,7 +446,7 @@ window.ElectronCloud.UI.init = function() {
                 const experimentalPanel = document.getElementById('experimental-panel');
                 const panelRect = experimentalPanel ? experimentalPanel.getBoundingClientRect() : null;
                 const btnRect = flickerSettingsBtn.getBoundingClientRect();
-                
+
                 // 二级菜单定位在面板左侧，完全不重叠
                 flickerSubmenu.style.top = btnRect.top + 'px';
                 flickerSubmenu.style.right = 'auto';
@@ -408,7 +462,7 @@ window.ElectronCloud.UI.init = function() {
             }
         });
     }
-    
+
     // 闪烁模式选择
     if (flickerModeSelect) {
         flickerModeSelect.addEventListener('change', (e) => {
@@ -416,7 +470,7 @@ window.ElectronCloud.UI.init = function() {
             const previousMode = state.heartbeat.mode;
             state.heartbeat.mode = e.target.value;
             state.heartbeat.phase = 0;
-            
+
             // 【重要】切换模式时，先恢复原始颜色，避免颜色污染
             if (state.baseColors && state.points && state.points.geometry) {
                 const colors = state.points.geometry.attributes.color;
@@ -428,24 +482,24 @@ window.ElectronCloud.UI.init = function() {
                     colors.needsUpdate = true;
                 }
             }
-            
+
             // 如果从星空模式切换出去，清除星空缓存
             if (previousMode === 'starry') {
                 state.heartbeat.starryPhases = null;
                 state.heartbeat.starryFrequencies = null;
                 state.heartbeat.originalColors = null;
             }
-            
+
             // 切换到新模式时，重置该模式的缓存（强制重新计算）
             // 这解决了"第一次启用是旧样式"的问题
             state.diffuseDensitiesComputed = false;
             state.waveRanksComputed = false;
             state.waveRanksPointCount = 0;
-            
+
             console.log('闪烁模式切换:', previousMode, '->', e.target.value);
         });
     }
-    
+
     // 闪烁频率
     if (flickerFrequencyRange) {
         flickerFrequencyRange.addEventListener('input', (e) => {
@@ -453,7 +507,7 @@ window.ElectronCloud.UI.init = function() {
             state.heartbeat.frequency = parseInt(e.target.value, 10);
         });
     }
-    
+
     // 最大亮度滑动条
     if (heartbeatMaxBrightness) {
         heartbeatMaxBrightness.addEventListener('input', (e) => {
@@ -461,13 +515,13 @@ window.ElectronCloud.UI.init = function() {
             state.heartbeat.maxBrightness = parseInt(e.target.value, 10);
         });
     }
-    
+
     // 权重模式开关 - 独立实验功能
     const weightModeToggle = document.getElementById('weight-mode-toggle');
     const weightFeatureBox = document.getElementById('weight-feature-box');
-    
+
     console.log('权重模式初始化 - toggle:', weightModeToggle, 'box:', weightFeatureBox);
-    
+
     if (weightModeToggle) {
         weightModeToggle.addEventListener('change', (e) => {
             const state = window.ElectronCloud.state;
@@ -476,24 +530,24 @@ window.ElectronCloud.UI.init = function() {
             if (state.heartbeat) {
                 state.heartbeat.weightMode = e.target.checked;
             }
-            
+
             // 更新框的激活状态
             const box = document.getElementById('weight-feature-box');
             if (box) {
                 box.classList.toggle('active', e.target.checked);
             }
-            
+
             // 切换权重模式时，清除缓存的密度权重，以便重新计算
             if (!e.target.checked) {
                 state.densityWeights = null;
             }
-            
+
             console.log('权重模式:', e.target.checked ? '开启' : '关闭');
         });
     } else {
         console.error('weight-mode-toggle 元素未找到');
     }
-    
+
     // 权重模式功能框点击切换
     if (weightFeatureBox) {
         weightFeatureBox.addEventListener('click', (e) => {
@@ -507,12 +561,12 @@ window.ElectronCloud.UI.init = function() {
     } else {
         console.error('weight-feature-box 元素未找到');
     }
-    
+
     // 导出设置二级面板
     const exportSettingsBtn = document.getElementById('export-settings-btn');
     const exportSubmenu = document.getElementById('export-submenu');
     const exportFeatureBox = document.getElementById('export-feature-box');
-    
+
     if (exportSettingsBtn && exportSubmenu) {
         exportSettingsBtn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -523,7 +577,7 @@ window.ElectronCloud.UI.init = function() {
                 const experimentalPanel = document.getElementById('experimental-panel');
                 const panelRect = experimentalPanel ? experimentalPanel.getBoundingClientRect() : null;
                 const btnRect = exportSettingsBtn.getBoundingClientRect();
-                
+
                 // 二级菜单定位在面板左侧，完全不重叠
                 exportSubmenu.style.top = btnRect.top + 'px';
                 exportSubmenu.style.right = 'auto';
@@ -539,7 +593,7 @@ window.ElectronCloud.UI.init = function() {
             }
         });
     }
-    
+
     // 点击导出功能框直接导出图片
     if (exportFeatureBox) {
         exportFeatureBox.addEventListener('click', (e) => {
@@ -553,11 +607,11 @@ window.ElectronCloud.UI.init = function() {
         });
         console.log('导出功能框点击事件已绑定');
     }
-    
+
     // 旋转设置二级面板
     const rotationSettingsBtn = document.getElementById('rotation-settings-btn');
     const rotationSubmenu = document.getElementById('rotation-submenu');
-    
+
     if (rotationSettingsBtn && rotationSubmenu) {
         rotationSettingsBtn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -568,7 +622,7 @@ window.ElectronCloud.UI.init = function() {
                 const viewPanel = document.getElementById('view-panel');
                 const panelRect = viewPanel ? viewPanel.getBoundingClientRect() : null;
                 const btnRect = rotationSettingsBtn.getBoundingClientRect();
-                
+
                 // 二级菜单定位在面板右侧，完全不重叠
                 rotationSubmenu.style.top = btnRect.top + 'px';
                 rotationSubmenu.style.right = 'auto';
@@ -584,19 +638,19 @@ window.ElectronCloud.UI.init = function() {
             }
         });
     }
-    
+
     // 视角锁定按钮
     const viewLockBtns = document.querySelectorAll('.view-lock-btn');
     viewLockBtns.forEach(btn => {
         btn.addEventListener('click', () => {
             const axis = btn.dataset.axis;
             const state = window.ElectronCloud.state;
-            
+
             // 切换激活状态
             const wasActive = btn.classList.contains('active');
             // 清除 active 和 green 状态
             viewLockBtns.forEach(b => { b.classList.remove('active'); b.classList.remove('green'); });
-            
+
             if (!wasActive) {
                 btn.classList.add('active');
                 btn.classList.add('green');
@@ -610,13 +664,13 @@ window.ElectronCloud.UI.init = function() {
                 if (window.ElectronCloud.Scene.resetAllSceneObjectsRotation) {
                     window.ElectronCloud.Scene.resetAllSceneObjectsRotation();
                 }
-                
+
                 // 解除锁定时更新互斥状态
                 window.ElectronCloud.UI.updateRotationLockMutualExclusion();
             }
         });
     });
-    
+
     // 关闭所有子菜单的函数
     function closeAllSubmenus() {
         document.querySelectorAll('.submenu-panel').forEach(panel => {
@@ -626,16 +680,16 @@ window.ElectronCloud.UI.init = function() {
             btn.classList.remove('active');
         });
     }
-    
+
     // 点击其他地方关闭子菜单
     document.addEventListener('click', (e) => {
-        if (!e.target.closest('.submenu-panel') && 
-            !e.target.closest('.feature-settings-btn') && 
+        if (!e.target.closest('.submenu-panel') &&
+            !e.target.closest('.feature-settings-btn') &&
             !e.target.closest('.submenu-trigger-right')) {
             closeAllSubmenus();
         }
     });
-    
+
     // 初始化亮度/辉光状态（基于默认滑块值）
     // 延迟执行，确保scene.js已初始化bloomPass
     setTimeout(() => {
@@ -643,27 +697,27 @@ window.ElectronCloud.UI.init = function() {
             window.ElectronCloud.UI.onOpacityChange();
         }
     }, 100);
-    
+
     console.log('UI 事件监听器初始化完成');
 
 };
 
 // 锁定摄像机到指定轴视角
-window.ElectronCloud.UI.lockCameraToAxis = function(axis) {
+window.ElectronCloud.UI.lockCameraToAxis = function (axis) {
     const state = window.ElectronCloud.state;
     const distance = state.camera.position.length() || 100;
-    
+
     // 清除之前的自定义旋转处理
     window.ElectronCloud.UI.clearLockedAxisRotation();
-    
+
     // 重置所有场景对象的旋转到初始状态（使用公共函数）
     window.ElectronCloud.UI.resetSceneObjectsRotation();
-    
+
     // 重置自动旋转累计角度
     if (state.autoRotate) {
         state.autoRotate.totalAngle = 0;
     }
-    
+
     // 重置所有轴的可见性，然后隐藏被锁定的轴
     if (window.ElectronCloud.Scene.resetAxesVisibility) {
         window.ElectronCloud.Scene.resetAxesVisibility();
@@ -671,12 +725,12 @@ window.ElectronCloud.UI.lockCameraToAxis = function(axis) {
     if (window.ElectronCloud.Scene.setAxisVisibility) {
         window.ElectronCloud.Scene.setAxisVisibility(axis, false);
     }
-    
+
     // 锁定哪个轴就是哪个轴指向屏幕外侧（指向观察者）
     // 先重置相机up向量为默认值
     state.camera.up.set(0, 1, 0);
-    
-    switch(axis) {
+
+    switch (axis) {
         case 'x':
             // X轴指向屏幕外侧（指向观察者），相机在+X方向看向原点
             state.camera.position.set(distance, 0, 0);
@@ -692,57 +746,57 @@ window.ElectronCloud.UI.lockCameraToAxis = function(axis) {
             state.camera.position.set(0, 0, distance);
             break;
     }
-    
+
     state.camera.lookAt(0, 0, 0);
     state.controls.target.set(0, 0, 0);
-    
+
     // 记录当前锁定的轴
     state.lockedAxis = axis;
-    
+
     // 设置自定义旋转处理（绕锁定轴旋转场景对象）
     // 注意：setupLockedAxisRotation 会禁用 OrbitControls
     window.ElectronCloud.UI.setupLockedAxisRotation(axis);
-    
+
     console.log(`视角已锁定到${axis}轴`);
 };
 
 // 设置锁定轴的自定义旋转处理
-window.ElectronCloud.UI.setupLockedAxisRotation = function(axis) {
+window.ElectronCloud.UI.setupLockedAxisRotation = function (axis) {
     const state = window.ElectronCloud.state;
     const canvas = state.renderer.domElement;
-    
+
     // 先清除之前的监听器
     window.ElectronCloud.UI.clearLockedAxisRotation();
-    
+
     console.log('设置锁定轴旋转处理, axis:', axis);
-    
+
     // **关键修复**：完全禁用 OrbitControls 以避免事件冲突
     // OrbitControls 即使 enableRotate=false，仍会拦截 pointer 事件
     state.controls.enabled = false;
-    
+
     let isDragging = false;
     let previousMouseX = 0;
     let previousMouseY = 0;
-    
+
     // 缩放相关
     let initialPinchDistance = 0;
     let isPinching = false;
-    
+
     // 获取旋转轴向量
-    const getRotationAxis = function() {
-        switch(state.lockedAxis) {
+    const getRotationAxis = function () {
+        switch (state.lockedAxis) {
             case 'x': return new THREE.Vector3(1, 0, 0);
             case 'y': return new THREE.Vector3(0, 1, 0);
             case 'z': return new THREE.Vector3(0, 0, 1);
             default: return null;
         }
     };
-    
+
     // 旋转场景对象
-    const rotateSceneObjects = function(angle) {
+    const rotateSceneObjects = function (angle) {
         const rotationAxis = getRotationAxis();
         if (!rotationAxis) return;
-        
+
         if (state.points) {
             state.points.rotateOnWorldAxis(rotationAxis, angle);
         }
@@ -753,24 +807,24 @@ window.ElectronCloud.UI.setupLockedAxisRotation = function(axis) {
             state.customAxes.rotateOnWorldAxis(rotationAxis, angle);
         }
     };
-    
+
     // 缩放处理
-    const handleZoom = function(delta) {
+    const handleZoom = function (delta) {
         const zoomSpeed = 0.001;
         const factor = 1 - delta * zoomSpeed;
         const minDistance = 5;
         const maxDistance = 500;
-        
+
         const currentDistance = state.camera.position.length();
         const newDistance = Math.max(minDistance, Math.min(maxDistance, currentDistance * factor));
-        
+
         state.camera.position.normalize().multiplyScalar(newDistance);
     };
-    
+
     // 使用 pointer 事件以获得更好的兼容性（包括触摸）
-    const onPointerDown = function(e) {
+    const onPointerDown = function (e) {
         if (!state.lockedAxis) return;
-        
+
         // 左键或触摸开始旋转
         if (e.button === 0 || e.pointerType === 'touch') {
             isDragging = true;
@@ -778,45 +832,45 @@ window.ElectronCloud.UI.setupLockedAxisRotation = function(axis) {
             previousMouseY = e.clientY;
             canvas.setPointerCapture(e.pointerId);
         }
-        
+
         e.preventDefault();
     };
-    
-    const onPointerMove = function(e) {
+
+    const onPointerMove = function (e) {
         if (!state.lockedAxis) return;
         if (!isDragging) return;
-        
+
         const deltaX = e.clientX - previousMouseX;
         // deltaY 暂时不用，但保留以备将来使用
         // const deltaY = e.clientY - previousMouseY;
-        
+
         previousMouseX = e.clientX;
         previousMouseY = e.clientY;
-        
+
         // 旋转速度
         const rotationSpeed = 0.01;
         const angle = deltaX * rotationSpeed;
-        
+
         rotateSceneObjects(angle);
-        
+
         e.preventDefault();
     };
-    
-    const onPointerUp = function(e) {
+
+    const onPointerUp = function (e) {
         if (isDragging) {
             isDragging = false;
             try {
                 canvas.releasePointerCapture(e.pointerId);
-            } catch(err) {
+            } catch (err) {
                 // 忽略释放捕获的错误
             }
         }
     };
-    
+
     // 滚轮缩放（包括触控板双指缩放）
-    const onWheel = function(e) {
+    const onWheel = function (e) {
         if (!state.lockedAxis) return;
-        
+
         // 触控板双指缩放通常会设置 ctrlKey，并且 deltaY 值较小
         // 普通滚轮的 deltaY 通常是 100 或 -100 的倍数
         if (e.ctrlKey) {
@@ -829,15 +883,15 @@ window.ElectronCloud.UI.setupLockedAxisRotation = function(axis) {
         }
         e.preventDefault();
     };
-    
+
     // 触摸缩放（双指捏合）
     const activeTouches = new Map();
-    
-    const onTouchStart = function(e) {
+
+    const onTouchStart = function (e) {
         for (let touch of e.changedTouches) {
             activeTouches.set(touch.identifier, { x: touch.clientX, y: touch.clientY });
         }
-        
+
         if (activeTouches.size === 2) {
             const touches = Array.from(activeTouches.values());
             initialPinchDistance = Math.hypot(
@@ -847,39 +901,39 @@ window.ElectronCloud.UI.setupLockedAxisRotation = function(axis) {
             isPinching = true;
         }
     };
-    
-    const onTouchMove = function(e) {
+
+    const onTouchMove = function (e) {
         for (let touch of e.changedTouches) {
             if (activeTouches.has(touch.identifier)) {
                 activeTouches.set(touch.identifier, { x: touch.clientX, y: touch.clientY });
             }
         }
-        
+
         if (isPinching && activeTouches.size === 2) {
             const touches = Array.from(activeTouches.values());
             const currentDistance = Math.hypot(
                 touches[0].x - touches[1].x,
                 touches[0].y - touches[1].y
             );
-            
+
             const delta = (initialPinchDistance - currentDistance) * 2;
             handleZoom(delta);
             initialPinchDistance = currentDistance;
-            
+
             e.preventDefault();
         }
     };
-    
-    const onTouchEnd = function(e) {
+
+    const onTouchEnd = function (e) {
         for (let touch of e.changedTouches) {
             activeTouches.delete(touch.identifier);
         }
-        
+
         if (activeTouches.size < 2) {
             isPinching = false;
         }
     };
-    
+
     // 保存引用以便后续移除
     state.lockedAxisHandlers = {
         canvas: canvas,
@@ -891,7 +945,7 @@ window.ElectronCloud.UI.setupLockedAxisRotation = function(axis) {
         touchmove: onTouchMove,
         touchend: onTouchEnd
     };
-    
+
     // 绑定事件
     canvas.addEventListener('pointerdown', onPointerDown);
     canvas.addEventListener('pointermove', onPointerMove);
@@ -901,21 +955,21 @@ window.ElectronCloud.UI.setupLockedAxisRotation = function(axis) {
     canvas.addEventListener('touchstart', onTouchStart, { passive: true });
     canvas.addEventListener('touchmove', onTouchMove, { passive: false });
     canvas.addEventListener('touchend', onTouchEnd, { passive: true });
-    
+
     // 也在 window 上监听 pointerup 以确保拖动到窗口外也能释放
     window.addEventListener('pointerup', onPointerUp);
-    
+
     console.log('已设置锁定轴旋转处理，OrbitControls 已禁用，使用自定义 pointer 事件');
 };
 
 // 清除锁定轴的自定义旋转处理
-window.ElectronCloud.UI.clearLockedAxisRotation = function() {
+window.ElectronCloud.UI.clearLockedAxisRotation = function () {
     const state = window.ElectronCloud.state;
-    
+
     if (state.lockedAxisHandlers) {
         const handlers = state.lockedAxisHandlers;
         const canvas = handlers.canvas;
-        
+
         if (canvas) {
             // 移除 pointer 事件
             if (handlers.pointerdown) {
@@ -941,7 +995,7 @@ window.ElectronCloud.UI.clearLockedAxisRotation = function() {
                 canvas.removeEventListener('mouseup', handlers.mouseup, true);
             }
         }
-        
+
         // 移除 window 上的监听器
         if (handlers.pointerup) {
             window.removeEventListener('pointerup', handlers.pointerup);
@@ -949,11 +1003,11 @@ window.ElectronCloud.UI.clearLockedAxisRotation = function() {
         if (handlers.mouseup) {
             window.removeEventListener('mouseup', handlers.mouseup, true);
         }
-        
+
         state.lockedAxisHandlers = null;
         console.log('已清除锁定轴旋转处理');
     }
-    
+
     // 重新启用 OrbitControls
     if (state.controls) {
         state.controls.enabled = true;
@@ -961,7 +1015,7 @@ window.ElectronCloud.UI.clearLockedAxisRotation = function() {
 };
 
 // 自动旋转与锁定视角互斥逻辑
-window.ElectronCloud.UI.updateRotationLockMutualExclusion = function() {
+window.ElectronCloud.UI.updateRotationLockMutualExclusion = function () {
     const state = window.ElectronCloud.state;
     const viewLockBtns = document.querySelectorAll('.view-lock-btn');
     const rotationSubmenu = document.getElementById('rotation-submenu');
@@ -970,10 +1024,10 @@ window.ElectronCloud.UI.updateRotationLockMutualExclusion = function() {
     const rotationAxisInputs = document.querySelectorAll('.axis-inputs input');
     const autoRotateToggle = document.getElementById('auto-rotate-toggle');
     const rotationFeatureBox = document.getElementById('rotation-feature-box');
-    
+
     const isAutoRotating = state.autoRotate && state.autoRotate.enabled;
     const isViewLocked = state.lockedAxis !== null && state.lockedAxis !== undefined;
-    
+
     // 如果自动旋转启用，禁用锁定视角按钮
     viewLockBtns.forEach(btn => {
         if (isAutoRotating) {
@@ -986,7 +1040,7 @@ window.ElectronCloud.UI.updateRotationLockMutualExclusion = function() {
             btn.style.pointerEvents = '';
         }
     });
-    
+
     // 如果视角锁定，禁用自动旋转控件
     if (autoRotateToggle) {
         if (isViewLocked) {
@@ -1003,7 +1057,7 @@ window.ElectronCloud.UI.updateRotationLockMutualExclusion = function() {
             }
         }
     }
-    
+
     if (rotationSpeedRange) {
         if (isViewLocked) {
             rotationSpeedRange.disabled = true;
@@ -1013,7 +1067,7 @@ window.ElectronCloud.UI.updateRotationLockMutualExclusion = function() {
             rotationSpeedRange.style.opacity = '';
         }
     }
-    
+
     rotationAxisInputs.forEach(input => {
         if (isViewLocked) {
             input.disabled = true;
@@ -1023,7 +1077,7 @@ window.ElectronCloud.UI.updateRotationLockMutualExclusion = function() {
             input.style.opacity = '';
         }
     });
-    
+
     if (rotationSettingsBtn) {
         if (isViewLocked) {
             rotationSettingsBtn.disabled = true;
@@ -1040,50 +1094,50 @@ window.ElectronCloud.UI.updateRotationLockMutualExclusion = function() {
 // ========================================
 
 // 计算坐标轴缩放比例（公共函数，避免重复代码）
-window.ElectronCloud.UI.calculateAxesScale = function(scaleFactor) {
+window.ElectronCloud.UI.calculateAxesScale = function (scaleFactor) {
     const state = window.ElectronCloud.state;
     const constants = window.ElectronCloud.constants;
-    
+
     if (scaleFactor === 0 || state.farthestDistance === 0) {
         return { visible: false, scale: 1 };
     }
-    
+
     const orbitalRadius = Math.max(constants.AXES_BASE_SIZE, state.farthestDistance);
     const targetSize = orbitalRadius * scaleFactor;
     const scale = targetSize / constants.AXES_BASE_SIZE;
-    
+
     return { visible: true, scale: scale };
 };
 
 // 清除轨道选择框的所有选中状态（公共函数，避免重复代码）
-window.ElectronCloud.UI.resetOrbitalSelections = function() {
+window.ElectronCloud.UI.resetOrbitalSelections = function () {
     const ui = window.ElectronCloud.ui;
     const state = window.ElectronCloud.state;
-    
+
     if (!ui.orbitalSelect) return;
-    
+
     // 清除所有选中状态
     Array.from(ui.orbitalSelect.options).forEach(option => {
         option.selected = false;
         option.classList.remove('force-selected', 'force-unselected', 'compare-color-0', 'compare-color-1', 'compare-color-2');
     });
-    
+
     state.currentOrbitals = [];
-    
+
     // 同步更新自定义列表视觉状态
     window.ElectronCloud.UI.updateCustomListVisuals();
-    
+
     // 更新选择计数
     window.ElectronCloud.UI.updateSelectionCount();
-    
+
     console.log('[UI] 轨道选择已清除');
 };
 
 // 重置所有场景对象的旋转状态（公共函数，避免重复代码）
 // 仅重置旋转，不清除锁定状态或其他逻辑
-window.ElectronCloud.UI.resetSceneObjectsRotation = function() {
+window.ElectronCloud.UI.resetSceneObjectsRotation = function () {
     const state = window.ElectronCloud.state;
-    
+
     if (state.points) {
         state.points.rotation.set(0, 0, 0);
         state.points.updateMatrix();
@@ -1104,20 +1158,20 @@ window.ElectronCloud.UI.resetSceneObjectsRotation = function() {
 // ========================================
 
 // 处理坐标系大小调节
-window.ElectronCloud.UI.onAxesSizeChange = function(event) {
+window.ElectronCloud.UI.onAxesSizeChange = function (event) {
     const state = window.ElectronCloud.state;
-    
+
     if (state.customAxes) {
         const value = parseInt(event.target.value, 10);
-        
+
         // 将滑动条值转换为比例系数 (0-1.05)
         const scaleFactor = value / 100;
         state.axesScaleFactor = scaleFactor;
-        
+
         // 使用公共函数计算缩放
         const result = window.ElectronCloud.UI.calculateAxesScale(scaleFactor);
         state.customAxes.visible = result.visible;
-        
+
         if (result.visible) {
             state.customAxes.scale.set(result.scale, result.scale, result.scale);
         }
@@ -1125,16 +1179,16 @@ window.ElectronCloud.UI.onAxesSizeChange = function(event) {
 };
 
 // 更新坐标轴滑动条的可用状态
-window.ElectronCloud.UI.updateAxesSizeRangeState = function() {
+window.ElectronCloud.UI.updateAxesSizeRangeState = function () {
     const ui = window.ElectronCloud.ui;
     const state = window.ElectronCloud.state;
-    
+
     if (!ui.axesSizeRange) return;
-    
+
     // 渲染中时置灰不可修改，其他时候可修改
     const isDisabled = state.isDrawing && !state.samplingCompleted;
     ui.axesSizeRange.disabled = isDisabled;
-    
+
     const label = document.querySelector('label[for="axes-size-range"]');
     if (label) {
         label.style.opacity = isDisabled ? '0.5' : '1';
@@ -1143,9 +1197,9 @@ window.ElectronCloud.UI.updateAxesSizeRangeState = function() {
 };
 
 // 处理角向分布叠加显隐
-window.ElectronCloud.UI.onAngularOverlayToggle = function(event) {
+window.ElectronCloud.UI.onAngularOverlayToggle = function (event) {
     const state = window.ElectronCloud.state;
-    
+
     if (event.target.checked) {
         // 检查是否有采样数据或采样是否完成
         if (state.pointCount === 0) {
@@ -1153,26 +1207,58 @@ window.ElectronCloud.UI.onAngularOverlayToggle = function(event) {
             alert('请先开始采样后再启用角向分布3D显示');
             return;
         }
-        
+
         if (state.isDrawing && state.pointCount < state.MAX_POINTS) {
             event.target.checked = false;
             alert('请等待采样完成后再启用角向分布3D显示');
             return;
         }
-        
+
         window.ElectronCloud.Visualization.updateAngularOverlay();
     } else {
         window.ElectronCloud.Scene.clearAngularOverlay();
     }
 };
 
+// 处理95%等值面轮廓显隐
+window.ElectronCloud.UI.onContourOverlayToggle = function (event) {
+    const state = window.ElectronCloud.state;
+
+    if (event.target.checked) {
+        // 检查是否有采样数据
+        if (state.pointCount === 0) {
+            event.target.checked = false;
+            alert('请先开始采样后再启用轨道轮廓显示');
+            return;
+        }
+
+        if (state.isDrawing && state.pointCount < state.MAX_POINTS) {
+            event.target.checked = false;
+            alert('请等待采样完成后再启用轨道轮廓显示');
+            return;
+        }
+
+        window.ElectronCloud.Visualization.updateContourOverlay();
+    } else {
+        // 移除等值面
+        if (state.contourOverlay) {
+            state.scene.remove(state.contourOverlay);
+            state.contourOverlay.traverse((child) => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) child.material.dispose();
+            });
+            state.contourOverlay = null;
+        }
+    }
+};
+
 // 处理轨道选择变化
-window.ElectronCloud.UI.onOrbitalSelectChange = function() {
+window.ElectronCloud.UI.onOrbitalSelectChange = function () {
     const state = window.ElectronCloud.state;
     const ui = window.ElectronCloud.ui;
-    
+
     const opts = Array.from(ui.orbitalSelect.selectedOptions || []).map(o => o.value);
-    
+
     // 在多选或比照模式下，使用选中的选项
     // 在普通模式下，如果没有选中任何选项，默认使用第一个选项
     if ((ui.multiselectToggle && ui.multiselectToggle.checked) || (ui.compareToggle && ui.compareToggle.checked)) {
@@ -1180,34 +1266,41 @@ window.ElectronCloud.UI.onOrbitalSelectChange = function() {
     } else {
         state.currentOrbitals = opts.length ? opts : [ui.orbitalSelect.value || '1s'];
     }
-    
+
     // 单选模式下手动更新选中样式（因为浏览器不会自动更新 option:checked 背景）
     if (!(ui.multiselectToggle && ui.multiselectToggle.checked) && !(ui.compareToggle && ui.compareToggle.checked)) {
         window.ElectronCloud.UI.updateSingleSelectStyle();
     }
-    
+
     // 重新选择轨道后，重置3D角向开关为关闭状态
     if (ui.angular3dToggle && ui.angular3dToggle.checked) {
         ui.angular3dToggle.checked = false;
         const changeEvent = new Event('change', { bubbles: true });
         ui.angular3dToggle.dispatchEvent(changeEvent);
     }
-    
+
+    // 重新选择轨道后，重置轨道轮廓开关为关闭状态
+    if (ui.contour3dToggle && ui.contour3dToggle.checked) {
+        ui.contour3dToggle.checked = false;
+        const changeEvent = new Event('change', { bubbles: true });
+        ui.contour3dToggle.dispatchEvent(changeEvent);
+    }
+
     // 更新多选模式或比照模式的选择计数
     if ((ui.multiselectToggle && ui.multiselectToggle.checked) || (ui.compareToggle && ui.compareToggle.checked)) {
         window.ElectronCloud.UI.updateSelectionCount();
         window.ElectronCloud.UI.refreshSelectStyles();
-        
+
         // 更新清空按钮状态
         window.ElectronCloud.UI.updateClearAllSelectionsState();
     }
 };
 
 // 单选模式下更新选中样式
-window.ElectronCloud.UI.updateSingleSelectStyle = function() {
+window.ElectronCloud.UI.updateSingleSelectStyle = function () {
     const ui = window.ElectronCloud.ui;
     if (!ui.orbitalSelect) return;
-    
+
     // 清除所有 option 的高亮样式
     Array.from(ui.orbitalSelect.options).forEach(opt => {
         opt.classList.remove('selected-green');
@@ -1215,7 +1308,7 @@ window.ElectronCloud.UI.updateSingleSelectStyle = function() {
         opt.style.color = '';
         opt.style.fontWeight = '';
     });
-    
+
     // 给当前选中的 option 添加高亮样式
     if (ui.orbitalSelect.selectedIndex >= 0) {
         const selectedOpt = ui.orbitalSelect.options[ui.orbitalSelect.selectedIndex];
@@ -1228,7 +1321,7 @@ window.ElectronCloud.UI.updateSingleSelectStyle = function() {
 };
 
 // 更新角向分布3D开关的可用状态
-window.ElectronCloud.UI.updateAngular3DToggleState = function() {
+window.ElectronCloud.UI.updateAngular3DToggleState = function () {
     const state = window.ElectronCloud.state;
     const ui = window.ElectronCloud.ui;
 
@@ -1244,6 +1337,19 @@ window.ElectronCloud.UI.updateAngular3DToggleState = function() {
             angular3dLabel.style.cursor = 'not-allowed';
             angular3dLabel.title = '对比模式下不可用';
         }
+        return;
+    }
+
+    // 【杂化模式】禁用3D角向形状
+    if (state.isHybridMode === true) {
+        ui.angular3dToggle.disabled = true;
+        if (angular3dLabel) {
+            angular3dLabel.style.opacity = '0.5';
+            angular3dLabel.style.cursor = 'not-allowed';
+            angular3dLabel.title = '杂化模式下不可用';
+        }
+        // 但仍需更新轨道轮廓状态（轨道轮廓在杂化模式下应可用）
+        window.ElectronCloud.UI.updateContour3DToggleState();
         return;
     }
 
@@ -1270,10 +1376,59 @@ window.ElectronCloud.UI.updateAngular3DToggleState = function() {
             angular3dLabel.title = '';
         }
     }
+
+    // 同步更新轨道轮廓开关（保持一致的逻辑）
+    window.ElectronCloud.UI.updateContour3DToggleState();
+};
+
+// 更新轨道轮廓开关的可用状态（与3D角向形状保持一致）
+window.ElectronCloud.UI.updateContour3DToggleState = function () {
+    const state = window.ElectronCloud.state;
+    const ui = window.ElectronCloud.ui;
+
+    const contour3dToggle = document.getElementById('contour-3d-toggle');
+    if (!contour3dToggle) return;
+
+    const contour3dLabel = document.querySelector('label[for="contour-3d-toggle"]');
+
+    // 在对比模式下禁用
+    if (ui.compareToggle && ui.compareToggle.checked) {
+        contour3dToggle.disabled = true;
+        if (contour3dLabel) {
+            contour3dLabel.style.opacity = '0.5';
+            contour3dLabel.style.cursor = 'not-allowed';
+            contour3dLabel.title = '对比模式下不可用';
+        }
+        return;
+    }
+
+    // 在采样过程中禁用
+    if (state.isDrawing && state.pointCount < state.MAX_POINTS) {
+        contour3dToggle.disabled = true;
+        if (contour3dLabel) {
+            contour3dLabel.style.opacity = '0.5';
+            contour3dLabel.style.cursor = 'not-allowed';
+            contour3dLabel.title = '采样完成后可用';
+        }
+    } else if (state.pointCount === 0) {
+        contour3dToggle.disabled = true;
+        if (contour3dLabel) {
+            contour3dLabel.style.opacity = '0.5';
+            contour3dLabel.style.cursor = 'not-allowed';
+            contour3dLabel.title = '请先开始采样';
+        }
+    } else {
+        contour3dToggle.disabled = false;
+        if (contour3dLabel) {
+            contour3dLabel.style.opacity = '1';
+            contour3dLabel.style.cursor = 'pointer';
+            contour3dLabel.title = '';
+        }
+    }
 };
 
 // 控件辅助函数
-window.ElectronCloud.UI.onSpeedChange = function() {
+window.ElectronCloud.UI.onSpeedChange = function () {
     // 速度变化直接由采样模块读取
 };
 
@@ -1296,26 +1451,26 @@ window.ElectronCloud.UI.orbitalDistanceTable = {
 
 // 获取点大小（根据轨道尺寸等比例缩放）
 // 以"最远距离 60"为基准（对应 n=2 轨道）
-window.ElectronCloud.UI.getPointSize = function() {
+window.ElectronCloud.UI.getPointSize = function () {
     const ui = window.ElectronCloud.ui;
     const state = window.ElectronCloud.state;
     const distanceTable = window.ElectronCloud.UI.orbitalDistanceTable;
-    
+
     if (!ui.sizeRange) return 0.06;
-    
+
     // 滑条范围 1-200，默认值 50
     // 原来的中等大小 0.06 对应滑条值 50
     // 滑条值 100 对应原来的大小 0.12，滑条值 200 对应 0.24
     const sliderValue = parseInt(ui.sizeRange.value);
     // 线性映射：1->0.012, 50->0.06, 100->0.12, 200->0.24
     const baseSize = (sliderValue / 50) * 0.06;
-    
+
     // 基准最远距离（对应 n=2 轨道）
     const baseDistance = 60;
-    
+
     // 获取当前选中轨道中最大的预估距离
     let maxDistance = baseDistance; // 默认值
-    
+
     // 优先从 state.currentOrbitals 获取（适用于所有模式）
     if (state.currentOrbitals && state.currentOrbitals.length > 0) {
         for (const orbitalKey of state.currentOrbitals) {
@@ -1324,7 +1479,7 @@ window.ElectronCloud.UI.getPointSize = function() {
                 maxDistance = dist;
             }
         }
-    } 
+    }
     // 备用：从 UI 选择框获取
     else if (ui.orbitalSelect) {
         const selectedOptions = ui.orbitalSelect.selectedOptions;
@@ -1343,46 +1498,46 @@ window.ElectronCloud.UI.getPointSize = function() {
             }
         }
     }
-    
+
     // 点大小与轨道尺寸等比例缩放
     const scaleFactor = maxDistance / baseDistance;
     return baseSize * scaleFactor;
 };
 
-window.ElectronCloud.UI.onSizeChange = function() {
+window.ElectronCloud.UI.onSizeChange = function () {
     const state = window.ElectronCloud.state;
-    
+
     if (state.points && state.points.material) {
         state.points.material.size = window.ElectronCloud.UI.getPointSize();
     }
 };
 
-window.ElectronCloud.UI.onOpacityChange = function() {
+window.ElectronCloud.UI.onOpacityChange = function () {
     const state = window.ElectronCloud.state;
     const ui = window.ElectronCloud.ui;
-    
+
     if (!ui.opacityRange) return;
-    
+
     const value = parseInt(ui.opacityRange.value, 10); // 0-100
-    
+
     // 新映射：前50%映射到透明度 (0-50 -> 0.05-1.0)
     // 后50%映射到辉光强度 (50-100 -> 0-4.5)，使用曲线映射
     // 默认值为67（约2/3位置），处于辉光区间
-    
+
     if (value <= 50) {
         // 透明度区间：0-50 映射到 0.05-1.0
         const opacity = 0.05 + (value / 50) * 0.95;
-        
+
         if (state.points && state.points.material) {
             state.points.material.opacity = opacity;
         }
-        
+
         // 关闭辉光
         if (state.bloomPass) {
             state.bloomPass.strength = 0;
         }
         state.bloomEnabled = false;
-        
+
     } else {
         // 辉光区间：50-100 映射到辉光强度 0-4.5
         // 使用曲线映射(指数函数)，在低值时能精细调节
@@ -1390,13 +1545,13 @@ window.ElectronCloud.UI.onOpacityChange = function() {
         if (state.points && state.points.material) {
             state.points.material.opacity = 1.0;
         }
-        
+
         // 开启辉光，使用曲线映射计算强度
         const glowProgress = (value - 50) / 50; // 0-1
         // 使用平方曲线: y = x^2，这样小值区间更精细
         const curvedProgress = glowProgress * glowProgress;
         const bloomStrength = curvedProgress * 4.5; // 0-4.5
-        
+
         if (state.bloomPass) {
             state.bloomPass.strength = bloomStrength;
         }
@@ -1405,38 +1560,38 @@ window.ElectronCloud.UI.onOpacityChange = function() {
     }
 };
 
-window.ElectronCloud.UI.onCenterLockChange = function() {
+window.ElectronCloud.UI.onCenterLockChange = function () {
     const state = window.ElectronCloud.state;
     const ui = window.ElectronCloud.ui;
-    
+
     if (!state.controls || !ui.centerLock) return;
-    
+
     const locked = ui.centerLock.checked;
     // 更新 center-lock-box 的 active 样式
     const centerLockBox = document.getElementById('center-lock-box');
     if (centerLockBox) {
         centerLockBox.classList.toggle('active', locked);
     }
-    
+
     // 禁用平移并锁定目标在原点
     state.controls.enablePan = !locked;
     if (locked) {
         state.controls.target.set(0, 0, 0);
         state.controls.update();
     }
-    
+
     console.log('[UI] centerLock 状态变更:', locked ? '锁定' : '解锁', ', enablePan:', state.controls.enablePan);
 };
 
 // 辅助函数：检查并同步 centerLock 状态
 // 用于其他模块恢复状态时调用
-window.ElectronCloud.UI.syncCenterLockState = function() {
+window.ElectronCloud.UI.syncCenterLockState = function () {
     const state = window.ElectronCloud.state;
     if (!state.controls) return;
-    
+
     const centerLock = document.getElementById('center-lock');
     const locked = centerLock && centerLock.checked;
-    
+
     state.controls.enablePan = !locked;
     if (locked) {
         state.controls.target.set(0, 0, 0);
@@ -1444,25 +1599,25 @@ window.ElectronCloud.UI.syncCenterLockState = function() {
 };
 
 // 渲染相位切换
-window.ElectronCloud.UI.onPhaseToggleChange = function() {
+window.ElectronCloud.UI.onPhaseToggleChange = function () {
     const phaseToggle = document.getElementById('phase-toggle');
     const phaseBox = document.getElementById('phase-box');
-    
+
     if (phaseBox && phaseToggle) {
         phaseBox.classList.toggle('active', phaseToggle.checked);
     }
 };
 
 // 为所有 mode-toggle-box 添加点击切换逻辑
-window.ElectronCloud.UI.setupModeToggleBoxes = function() {
+window.ElectronCloud.UI.setupModeToggleBoxes = function () {
     const boxes = document.querySelectorAll('.mode-toggle-box');
     boxes.forEach((box, index) => {
-        box.addEventListener('click', function(e) {
+        box.addEventListener('click', function (e) {
             // 如果点击的是 checkbox 本身，不需要额外处理
             if (e.target.tagName === 'INPUT') {
                 return;
             }
-            
+
             const checkbox = box.querySelector('input[type="checkbox"]');
             if (checkbox && !checkbox.disabled) {
                 checkbox.checked = !checkbox.checked;
@@ -1470,26 +1625,26 @@ window.ElectronCloud.UI.setupModeToggleBoxes = function() {
                 checkbox.dispatchEvent(new Event('change', { bubbles: true }));
             }
         });
-        
+
         // 设置鼠标样式为指针
         box.style.cursor = 'pointer';
     });
-    
+
     // 为 phase-toggle 添加 change 监听
     const phaseToggle = document.getElementById('phase-toggle');
     if (phaseToggle) {
         phaseToggle.addEventListener('change', window.ElectronCloud.UI.onPhaseToggleChange);
     }
-    
+
     // 初始化 phase-box 和 center-lock-box 的 active 状态
     window.ElectronCloud.UI.onPhaseToggleChange();
     window.ElectronCloud.UI.onCenterLockChange();
 };
 
-window.ElectronCloud.UI.onPauseToggle = function() {
+window.ElectronCloud.UI.onPauseToggle = function () {
     const state = window.ElectronCloud.state;
     const ui = window.ElectronCloud.ui;
-    
+
     if (!state.isDrawing) {
         // 继续采样，但不启用实时图表更新
         state.isDrawing = true;
@@ -1508,10 +1663,10 @@ window.ElectronCloud.UI.onPauseToggle = function() {
 };
 
 // 多选模式功能
-window.ElectronCloud.UI.onMultiselectToggle = function() {
+window.ElectronCloud.UI.onMultiselectToggle = function () {
     const ui = window.ElectronCloud.ui;
     const state = window.ElectronCloud.state;
-    
+
     // 渲染开始后禁止切换模式
     const hasStarted = state.pointCount > 0 || state.isDrawing;
     if (hasStarted) {
@@ -1521,17 +1676,17 @@ window.ElectronCloud.UI.onMultiselectToggle = function() {
         }
         return;
     }
-    
+
     // 【强制清除】切换模式时，无论如何都先清除所有选择
     window.ElectronCloud.UI.resetOrbitalSelections();
-    
+
     // 互斥：取消比照模式
     if (ui.compareToggle && ui.compareToggle.checked) {
         ui.compareToggle.checked = false;
         // 不递归调用onCompareToggle，避免重复清除
         const compareBox = document.getElementById('compare-box');
         if (compareBox) compareBox.classList.remove('active');
-        
+
         // 【修复】从比照模式切换过来时，恢复相位开关的可用状态
         const phaseToggle = document.getElementById('phase-toggle');
         const phaseBox = document.getElementById('phase-box');
@@ -1541,22 +1696,22 @@ window.ElectronCloud.UI.onMultiselectToggle = function() {
         if (phaseBox) {
             phaseBox.classList.remove('disabled');
         }
-        
+
         // 重新启用显示开关功能
         window.ElectronCloud.UI.enableAngular3DToggle();
     }
-    
+
     const isMultiselect = ui.multiselectToggle && ui.multiselectToggle.checked;
     const label = document.querySelector('label[for="orbital-select"]');
     const controlPanel = document.getElementById('control-panel');
     const multiselectControls = document.querySelector('.multiselect-controls');
     const multiselectBox = document.getElementById('multiselect-box');
-    
+
     // 更新多选框激活样式
     if (multiselectBox) {
         multiselectBox.classList.toggle('active', isMultiselect);
     }
-    
+
     if (isMultiselect) {
         if (controlPanel) controlPanel.classList.add('multiselect-active');
         if (multiselectControls) multiselectControls.classList.add('visible');
@@ -1566,20 +1721,20 @@ window.ElectronCloud.UI.onMultiselectToggle = function() {
             ui.orbitalSelect.multiple = true;
             ui.orbitalSelect.size = 5;
         }
-        
+
         // 多选模式下禁用角向分布曲线选项
         window.ElectronCloud.UI.disableAngularPlotOption();
-        
+
         window.ElectronCloud.UI.updateSelectionCount();
         window.ElectronCloud.UI.refreshSelectStyles();
         window.ElectronCloud.UI.updateCustomListVisuals();
     } else {
         // 重新启用显示开关功能（3D角向形状在多选模式下也是可用的，所以这里不需要特别处理）
         // window.ElectronCloud.UI.enableAngular3DToggle(); // 多选模式下没有禁用，所以退出时也不需要启用
-        
+
         // 【新增】重新启用角向分布曲线选项
         window.ElectronCloud.UI.enableAngularPlotOption();
-        
+
         if (label) {
             label.textContent = '选择轨道';
             label.style.display = '';
@@ -1591,7 +1746,7 @@ window.ElectronCloud.UI.onMultiselectToggle = function() {
             ui.orbitalSelect.multiple = false;
             ui.orbitalSelect.size = 3; // 压缩后的高度
         }
-        
+
         // 清除强制样式类（包括force-unselected）
         if (ui.orbitalSelect) {
             const options = ui.orbitalSelect.querySelectorAll('option');
@@ -1599,7 +1754,7 @@ window.ElectronCloud.UI.onMultiselectToggle = function() {
                 option.classList.remove('force-selected', 'force-unselected');
             });
         }
-        
+
         // 【修复】退出多选模式时，处理选中状态
         if (ui.orbitalSelect) {
             const selectedCount = ui.orbitalSelect.selectedOptions.length;
@@ -1616,7 +1771,7 @@ window.ElectronCloud.UI.onMultiselectToggle = function() {
             // 同步state.currentOrbitals
             const selected = Array.from(ui.orbitalSelect.selectedOptions).map(o => o.value);
             state.currentOrbitals = selected.length ? selected : ['1s'];
-            
+
             const changeEvent = new Event('change', { bubbles: true });
             ui.orbitalSelect.dispatchEvent(changeEvent);
         }
@@ -1625,10 +1780,10 @@ window.ElectronCloud.UI.onMultiselectToggle = function() {
 };
 
 // 比照模式功能
-window.ElectronCloud.UI.onCompareToggle = function() {
+window.ElectronCloud.UI.onCompareToggle = function () {
     const ui = window.ElectronCloud.ui;
     const state = window.ElectronCloud.state;
-    
+
     // 渲染开始后禁止切换模式
     const hasStarted = state.pointCount > 0 || state.isDrawing;
     if (hasStarted) {
@@ -1638,10 +1793,10 @@ window.ElectronCloud.UI.onCompareToggle = function() {
         }
         return;
     }
-    
+
     // 【强制清除】切换模式时，无论如何都先清除所有选择
     window.ElectronCloud.UI.resetOrbitalSelections();
-    
+
     // 互斥：取消多选模式
     if (ui.multiselectToggle && ui.multiselectToggle.checked) {
         ui.multiselectToggle.checked = false;
@@ -1651,19 +1806,19 @@ window.ElectronCloud.UI.onCompareToggle = function() {
         const controlPanel = document.getElementById('control-panel');
         if (controlPanel) controlPanel.classList.remove('multiselect-active');
     }
-    
+
     const isCompare = ui.compareToggle && ui.compareToggle.checked;
     const label = document.querySelector('label[for="orbital-select"]');
     const controlPanel = document.getElementById('control-panel');
     const multiselectControls = document.querySelector('.multiselect-controls');
     const phaseToggle = document.getElementById('phase-toggle');
     const compareBox = document.getElementById('compare-box');
-    
+
     // 更新比照框激活样式
     if (compareBox) {
         compareBox.classList.toggle('active', isCompare);
     }
-    
+
     if (isCompare) {
         // 禁用渲染相位
         if (phaseToggle) {
@@ -1676,10 +1831,10 @@ window.ElectronCloud.UI.onCompareToggle = function() {
             phaseBox.classList.add('disabled');
             phaseBox.classList.remove('active');
         }
-        
+
         // 禁用显示开关功能，避免造成bug
         window.ElectronCloud.UI.disableAngular3DToggle();
-        
+
         if (controlPanel) {
             controlPanel.classList.add('multiselect-active');
             controlPanel.classList.add('compare-active');
@@ -1691,11 +1846,11 @@ window.ElectronCloud.UI.onCompareToggle = function() {
             ui.orbitalSelect.multiple = true;
             ui.orbitalSelect.size = 5;
         }
-        
+
         window.ElectronCloud.UI.updateSelectionCount();
         window.ElectronCloud.UI.refreshSelectStyles();
         window.ElectronCloud.UI.updateCustomListVisuals();
-        
+
         // 更新清空按钮状态
         window.ElectronCloud.UI.updateClearAllSelectionsState();
     } else {
@@ -1708,10 +1863,10 @@ window.ElectronCloud.UI.onCompareToggle = function() {
         if (phaseBox) {
             phaseBox.classList.remove('disabled');
         }
-        
+
         // 重新启用显示开关功能
         window.ElectronCloud.UI.enableAngular3DToggle();
-        
+
         if (label) {
             label.textContent = '选择轨道';
             label.style.display = '';
@@ -1726,7 +1881,7 @@ window.ElectronCloud.UI.onCompareToggle = function() {
             ui.orbitalSelect.multiple = false; // 关闭多选模式
             ui.orbitalSelect.size = 3; // 压缩后的高度
         }
-        
+
         // 清除强制样式类（包括force-unselected）
         if (ui.orbitalSelect) {
             const options = ui.orbitalSelect.querySelectorAll('option');
@@ -1736,7 +1891,7 @@ window.ElectronCloud.UI.onCompareToggle = function() {
                 option.style.color = '';
             });
         }
-        
+
         // 【修复】退出比照模式时，处理选中状态
         if (ui.orbitalSelect) {
             const state = window.ElectronCloud.state;
@@ -1754,11 +1909,11 @@ window.ElectronCloud.UI.onCompareToggle = function() {
             // 同步state.currentOrbitals
             const selected = Array.from(ui.orbitalSelect.selectedOptions).map(o => o.value);
             state.currentOrbitals = selected.length ? selected : ['1s'];
-            
+
             const changeEvent = new Event('change', { bubbles: true });
             ui.orbitalSelect.dispatchEvent(changeEvent);
         }
-        
+
         // 更新清空按钮状态
         window.ElectronCloud.UI.updateClearAllSelectionsState();
     }
@@ -1766,30 +1921,30 @@ window.ElectronCloud.UI.onCompareToggle = function() {
 };
 
 // 设置多选模式交互
-window.ElectronCloud.UI.setupMultiselectMode = function() {
+window.ElectronCloud.UI.setupMultiselectMode = function () {
     const ui = window.ElectronCloud.ui;
     const state = window.ElectronCloud.state;
-    
+
     if (!ui.orbitalSelect) return;
-    
+
     // 标记是否已经设置过事件监听器，避免重复设置
     if (ui.orbitalSelect.multiselectHandlerSet) return;
     ui.orbitalSelect.multiselectHandlerSet = true;
-    
+
     // 存储滚动位置
     let savedScrollTop = 0;
-    
+
     // 【新增】阻止浏览器默认的focus选择行为
-    ui.orbitalSelect.addEventListener('focus', function(event) {
+    ui.orbitalSelect.addEventListener('focus', function (event) {
         // 在多选或比照模式下，focus时不应该自动选择任何选项
-        if ((ui.multiselectToggle && ui.multiselectToggle.checked) || 
+        if ((ui.multiselectToggle && ui.multiselectToggle.checked) ||
             (ui.compareToggle && ui.compareToggle.checked)) {
             savedScrollTop = ui.orbitalSelect.scrollTop;
         }
     });
-    
+
     // 多选模式和比照模式的点击处理
-    ui.orbitalSelect.addEventListener('mousedown', function(event) {
+    ui.orbitalSelect.addEventListener('mousedown', function (event) {
         const option = event.target;
         if (option.tagName === 'OPTION') {
             // 只有渲染完成后才能切换轨道可见性
@@ -1798,14 +1953,14 @@ window.ElectronCloud.UI.setupMultiselectMode = function() {
                 window.ElectronCloud.Orbital.toggleOrbitalVisibility(option.value);
                 return;
             }
-            
+
             // 只在多选模式或比照模式激活时处理（渲染期间）
-            if ((!ui.multiselectToggle || !ui.multiselectToggle.checked) && 
+            if ((!ui.multiselectToggle || !ui.multiselectToggle.checked) &&
                 (!ui.compareToggle || !ui.compareToggle.checked)) return;
-            
+
             // 保存当前滚动位置
             savedScrollTop = ui.orbitalSelect.scrollTop;
-            
+
             // 比照模式下限制选择数量
             if (ui.compareToggle && ui.compareToggle.checked && !option.selected && ui.orbitalSelect.selectedOptions.length >= 3) {
                 event.preventDefault();
@@ -1816,22 +1971,22 @@ window.ElectronCloud.UI.setupMultiselectMode = function() {
                 // alert('比照模式下最多选择三个轨道'); // 不再弹窗，改为自动替换
                 return;
             }
-            
+
             // 阻止默认行为，手动处理选择
             event.preventDefault();
-            
+
             // 切换选中状态
             option.selected = !option.selected;
-            
+
             // 立即触发change事件
             const changeEvent = new Event('change', { bubbles: true });
             ui.orbitalSelect.dispatchEvent(changeEvent);
-            
+
             // 立即恢复滚动位置
             setTimeout(() => {
                 ui.orbitalSelect.scrollTop = savedScrollTop;
             }, 0);
-            
+
             // 添加点击动画效果
             option.style.animation = 'selectPulse 0.3s ease-out';
             setTimeout(() => {
@@ -1839,10 +1994,10 @@ window.ElectronCloud.UI.setupMultiselectMode = function() {
             }, 300);
         }
     });
-    
+
     // 【新增】阻止键盘导航自动选择（在多选/比照模式下）
-    ui.orbitalSelect.addEventListener('keydown', function(event) {
-        if ((ui.multiselectToggle && ui.multiselectToggle.checked) || 
+    ui.orbitalSelect.addEventListener('keydown', function (event) {
+        if ((ui.multiselectToggle && ui.multiselectToggle.checked) ||
             (ui.compareToggle && ui.compareToggle.checked)) {
             // 阻止方向键等导航键的默认行为（会自动选择选项）
             if (['ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) {
@@ -1853,16 +2008,16 @@ window.ElectronCloud.UI.setupMultiselectMode = function() {
 };
 
 // 更新选择计数
-window.ElectronCloud.UI.updateSelectionCount = function() {
+window.ElectronCloud.UI.updateSelectionCount = function () {
     const ui = window.ElectronCloud.ui;
     const state = window.ElectronCloud.state;
-    
+
     if (!ui.orbitalSelect) return;
-    
+
     const selectedCount = ui.orbitalSelect.selectedOptions.length;
     const label = document.getElementById('orbital-select-label');
     const countText = document.getElementById('selection-count-text');
-    
+
     // 更新计数文本
     if (ui.multiselectToggle && ui.multiselectToggle.checked) {
         if (countText) countText.textContent = `${selectedCount}`;
@@ -1873,31 +2028,31 @@ window.ElectronCloud.UI.updateSelectionCount = function() {
     } else {
         if (label) label.style.display = ''; // 显示原label
     }
-    
+
     // 强制刷新选择框样式
     window.ElectronCloud.UI.refreshSelectStyles();
 };
 
 // 刷新选择框样式
-window.ElectronCloud.UI.refreshSelectStyles = function() {
+window.ElectronCloud.UI.refreshSelectStyles = function () {
     const ui = window.ElectronCloud.ui;
     const state = window.ElectronCloud.state;
     const constants = window.ElectronCloud.constants;
-    
+
     if (!ui.orbitalSelect) return;
-    
+
     // 强制重新应用样式
     const options = ui.orbitalSelect.querySelectorAll('option');
     options.forEach(option => {
         // 清除所有颜色类，但保留隐藏/可见类（如果渲染完成）
         option.classList.remove('force-selected', 'force-unselected', 'compare-color-0', 'compare-color-1', 'compare-color-2');
-        
+
         // 如果渲染未完成，清除隐藏/可见类
         if (!state.renderingCompleted) {
             option.classList.remove('orbital-hidden', 'orbital-visible');
             option.title = '';
         }
-        
+
         if (option.selected) {
             option.classList.add('force-selected');
             if (ui.compareToggle && ui.compareToggle.checked) {
@@ -1927,43 +2082,43 @@ window.ElectronCloud.UI.refreshSelectStyles = function() {
 };
 
 // 清除所有选择
-window.ElectronCloud.UI.clearAllSelections = function() {
+window.ElectronCloud.UI.clearAllSelections = function () {
     const ui = window.ElectronCloud.ui;
-    
+
     if (!ui.orbitalSelect || !ui.clearAllSelectionsBtn) return;
-    
+
     // 使用公共函数清除所有选中状态
     window.ElectronCloud.UI.resetOrbitalSelections();
-    
+
     // 添加清除动画效果
     ui.clearAllSelectionsBtn.style.transform = 'scale(0.95)';
     setTimeout(() => {
         ui.clearAllSelectionsBtn.style.transform = 'scale(1)';
     }, 150);
-    
+
     // 触发change事件更新选择状态（保留用于更新UI）
     const changeEvent = new Event('change', { bubbles: true });
     ui.orbitalSelect.dispatchEvent(changeEvent);
-    
+
     // 更新选择计数显示
     window.ElectronCloud.UI.updateSelectionCount();
-    
+
     // 更新模式切换栏状态（清空后恢复可用）
     window.ElectronCloud.UI.updateModeSwitcherState();
-    
+
     // 强制刷新样式
     window.ElectronCloud.UI.refreshSelectStyles();
 };
 
 // 专门禁用3D角向形状开关（对比模式下使用）
-window.ElectronCloud.UI.disableAngular3DToggle = function() {
+window.ElectronCloud.UI.disableAngular3DToggle = function () {
     const ui = window.ElectronCloud.ui;
-    
+
     // 确定当前的模式
     const isCompareMode = ui.compareToggle && ui.compareToggle.checked;
     const isMultiselectMode = ui.multiselectToggle && ui.multiselectToggle.checked;
     const modeText = isCompareMode ? '对比模式下不可用' : isMultiselectMode ? '多选模式下不可用' : '当前模式下不可用';
-    
+
     // 只禁用3D角向形状开关
     if (ui.angular3dToggle) {
         ui.angular3dToggle.disabled = true;
@@ -1981,9 +2136,9 @@ window.ElectronCloud.UI.disableAngular3DToggle = function() {
 };
 
 // 专门启用3D角向形状开关（退出对比模式时使用）
-window.ElectronCloud.UI.enableAngular3DToggle = function() {
+window.ElectronCloud.UI.enableAngular3DToggle = function () {
     const ui = window.ElectronCloud.ui;
-    
+
     // 启用3D角向形状开关，但需要检查其他条件
     if (ui.angular3dToggle) {
         const angular3dLabel = document.querySelector('label[for="angular-3d-toggle"]');
@@ -1997,18 +2152,11 @@ window.ElectronCloud.UI.enableAngular3DToggle = function() {
     }
 };
 
-// 禁用角向分布曲线选项（多选模式下使用）
-window.ElectronCloud.UI.disableAngularPlotOption = function() {
+// 禁用角向分布曲线选项（杂化模式/多选模式下使用）
+window.ElectronCloud.UI.disableAngularPlotOption = function () {
     const ui = window.ElectronCloud.ui;
-    
+
     if (ui.plotTypeSelect) {
-        // 找到角向分布选项并禁用它
-        const angularOption = ui.plotTypeSelect.querySelector('option[value="angular"]');
-        if (angularOption) {
-            angularOption.disabled = true;
-            angularOption.title = '多选模式下不可用';
-        }
-        
         // 如果当前选中的是角向分布，切换到径向分布
         if (ui.plotTypeSelect.value === 'angular') {
             ui.plotTypeSelect.value = 'radial';
@@ -2016,46 +2164,53 @@ window.ElectronCloud.UI.disableAngularPlotOption = function() {
             const changeEvent = new Event('change', { bubbles: true });
             ui.plotTypeSelect.dispatchEvent(changeEvent);
         }
-        
-        // 更新标签样式提示
-        const plotTypeLabel = document.querySelector('label[for="plot-type-select"]');
-        if (plotTypeLabel) {
-            plotTypeLabel.title = '多选模式下仅支持径向分布';
+
+        // 禁用整个 select 控件
+        ui.plotTypeSelect.disabled = true;
+
+        // 禁用自定义下拉框的视觉效果
+        const customContainer = ui.plotTypeSelect.nextElementSibling;
+        if (customContainer && customContainer.classList.contains('custom-select-container')) {
+            customContainer.style.opacity = '0.5';
+            customContainer.style.pointerEvents = 'none';
         }
     }
 };
 
-// 启用角向分布曲线选项（退出多选模式时使用）
-window.ElectronCloud.UI.enableAngularPlotOption = function() {
+// 启用角向分布曲线选项（退出杂化/多选模式时使用）
+window.ElectronCloud.UI.enableAngularPlotOption = function () {
     const ui = window.ElectronCloud.ui;
-    
+    const state = window.ElectronCloud.state;
+
+    // 【关键】杂化模式下不启用，防止被其他调用覆盖禁用状态
+    if (state.isHybridMode === true) {
+        return;
+    }
+
     if (ui.plotTypeSelect) {
-        // 启用角向分布选项
-        const angularOption = ui.plotTypeSelect.querySelector('option[value="angular"]');
-        if (angularOption) {
-            angularOption.disabled = false;
-            angularOption.title = '';
-        }
-        
-        // 清除标签提示
-        const plotTypeLabel = document.querySelector('label[for="plot-type-select"]');
-        if (plotTypeLabel) {
-            plotTypeLabel.title = '';
+        // 启用整个 select 控件
+        ui.plotTypeSelect.disabled = false;
+
+        // 恢复自定义下拉框的视觉效果
+        const customContainer = ui.plotTypeSelect.nextElementSibling;
+        if (customContainer && customContainer.classList.contains('custom-select-container')) {
+            customContainer.style.opacity = '';
+            customContainer.style.pointerEvents = '';
         }
     }
 };
 
 // 更新清空所有选择按钮的状态
-window.ElectronCloud.UI.updateClearAllSelectionsState = function() {
+window.ElectronCloud.UI.updateClearAllSelectionsState = function () {
     const ui = window.ElectronCloud.ui;
     const state = window.ElectronCloud.state;
-    
+
     if (!ui.clearAllSelectionsBtn) return;
-    
+
     // 在对比模式下，如果已经启动计算，则禁用清空按钮
     const isCompareMode = ui.compareToggle && ui.compareToggle.checked;
     const hasStartedDrawing = state.pointCount > 0 || state.isDrawing;
-    
+
     if (isCompareMode && hasStartedDrawing) {
         ui.clearAllSelectionsBtn.disabled = true;
         ui.clearAllSelectionsBtn.style.opacity = '0.5';
@@ -2075,18 +2230,18 @@ window.ElectronCloud.UI.updateClearAllSelectionsState = function() {
 };
 
 // 更新全屏按钮状态
-window.ElectronCloud.UI.updateFullscreenBtnState = function() {
+window.ElectronCloud.UI.updateFullscreenBtnState = function () {
     const fullscreenBtn = document.getElementById('app-fullscreen-btn');
-    
+
     if (!fullscreenBtn) return;
-    
+
     // 允许在任意时候切换全屏，不再在渲染中禁用
     fullscreenBtn.disabled = false;
     fullscreenBtn.title = document.fullscreenElement ? '退出全屏' : '全屏模式';
 };
 
 // 启用手势按钮
-window.ElectronCloud.UI.enableGestureButton = function() {
+window.ElectronCloud.UI.enableGestureButton = function () {
     const btn = document.getElementById('gesture-control-btn');
     if (btn) {
         btn.disabled = false;
@@ -2097,14 +2252,14 @@ window.ElectronCloud.UI.enableGestureButton = function() {
 };
 
 // 禁用手势按钮
-window.ElectronCloud.UI.disableGestureButton = function() {
+window.ElectronCloud.UI.disableGestureButton = function () {
     const btn = document.getElementById('gesture-control-btn');
     if (btn) {
         btn.disabled = true;
         btn.style.opacity = '0.5';
         btn.style.cursor = 'not-allowed';
         btn.title = '手势控制 (渲染完成后可用)';
-        
+
         // 如果正在运行手势，停止它
         if (window.ElectronCloud.Gesture && window.ElectronCloud.Gesture.stop) {
             window.ElectronCloud.Gesture.stop();
@@ -2113,30 +2268,30 @@ window.ElectronCloud.UI.disableGestureButton = function() {
 };
 
 // 手势按钮点击处理 - 支持开始和停止切换
-window.ElectronCloud.UI.onGestureButtonClick = function() {
+window.ElectronCloud.UI.onGestureButtonClick = function () {
     // 检查手势识别是否正在运行
     if (window.ElectronCloud.Gesture && window.ElectronCloud.Gesture.isRunning && window.ElectronCloud.Gesture.isRunning()) {
         // 正在运行，则停止
         window.ElectronCloud.Gesture.stop();
-        
+
         // 退出全屏
         if (document.fullscreenElement) {
             document.exitFullscreen().catch(err => {
                 console.error('退出全屏失败:', err);
             });
         }
-        
+
         // 更新按钮状态
         const btn = document.getElementById('gesture-control-btn');
         if (btn) {
             btn.classList.remove('gesture-active');
             btn.title = '手势控制';
         }
-        
+
         console.log('[UI] 手势控制已停止');
         return;
     }
-    
+
     // 未运行，则启动
     // 1. 进入全屏
     if (!document.fullscreenElement) {
@@ -2144,7 +2299,7 @@ window.ElectronCloud.UI.onGestureButtonClick = function() {
             console.error(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
         });
     }
-    
+
     // 2. 收起所有面板
     const controlPanel = document.getElementById('control-panel');
     const dataPanel = document.getElementById('data-panel');
@@ -2154,10 +2309,10 @@ window.ElectronCloud.UI.onGestureButtonClick = function() {
     if (dataPanel) dataPanel.classList.add('collapsed');
     if (viewPanel) viewPanel.classList.add('collapsed');
     if (experimentalPanel) experimentalPanel.classList.add('collapsed');
-    
+
     // 3. 清除视图面板的所有设置
     const state = window.ElectronCloud.state;
-    
+
     // 3.1 解锁视角
     const viewLockBtns = document.querySelectorAll('.view-lock-btn');
     viewLockBtns.forEach(btn => btn.classList.remove('active'));
@@ -2169,7 +2324,7 @@ window.ElectronCloud.UI.onGestureButtonClick = function() {
         // 恢复默认up向量
         if (state.camera) state.camera.up.set(0, 1, 0);
     }
-    
+
     // 3.2 停止自动旋转（但保持默认速度为10%）
     if (state.autoRotate) {
         state.autoRotate.enabled = false;
@@ -2179,7 +2334,7 @@ window.ElectronCloud.UI.onGestureButtonClick = function() {
     const rotationSpeedValue = document.getElementById('rotation-speed-value');
     if (rotationSpeedRange) rotationSpeedRange.value = 1;
     if (rotationSpeedValue) rotationSpeedValue.textContent = '1.00';
-    
+
     // 3.3 重置旋转轴为默认值
     const rotationAxisX = document.getElementById('rotation-axis-x');
     const rotationAxisY = document.getElementById('rotation-axis-y');
@@ -2190,7 +2345,7 @@ window.ElectronCloud.UI.onGestureButtonClick = function() {
     if (state.autoRotate && state.autoRotate.axis) {
         state.autoRotate.axis.set(0, 1, 0);
     }
-    
+
     // 4. 开启"固定至中心"
     const centerLock = document.getElementById('center-lock');
     if (centerLock && !centerLock.checked) {
@@ -2198,7 +2353,7 @@ window.ElectronCloud.UI.onGestureButtonClick = function() {
         // 触发 change 事件以应用逻辑
         centerLock.dispatchEvent(new Event('change'));
     }
-    
+
     // 5. 调整视角 (缩放至合适大小)
     if (state.controls) {
         if (state.farthestDistance > 0) {
@@ -2209,14 +2364,14 @@ window.ElectronCloud.UI.onGestureButtonClick = function() {
             state.controls.update();
         }
     }
-    
+
     // 6. 更新按钮状态
     const btn = document.getElementById('gesture-control-btn');
     if (btn) {
         btn.classList.add('gesture-active');
         btn.title = '点击停止手势控制';
     }
-    
+
     // 7. 开始手势识别
     if (window.ElectronCloud.Gesture && window.ElectronCloud.Gesture.start) {
         window.ElectronCloud.Gesture.start();
@@ -2227,10 +2382,10 @@ window.ElectronCloud.UI.onGestureButtonClick = function() {
 
 // 更新自动旋转按钮状态
 // 【修改】允许在渲染启动前点击开关预设状态，渲染后才实际旋转
-window.ElectronCloud.UI.updateAutoRotateButtonState = function() {
+window.ElectronCloud.UI.updateAutoRotateButtonState = function () {
     const autoRotateToggle = document.getElementById('auto-rotate-toggle');
     const rotationFeatureBox = document.getElementById('rotation-feature-box');
-    
+
     // 始终允许用户切换（除非视角被锁定，那由互斥逻辑处理）
     // 实际旋转逻辑在scene.js中已有state.points检查，确保渲染后才旋转
     if (autoRotateToggle) {
@@ -2240,23 +2395,23 @@ window.ElectronCloud.UI.updateAutoRotateButtonState = function() {
         rotationFeatureBox.style.opacity = '';
         rotationFeatureBox.style.pointerEvents = '';
     }
-    
+
     // 同时更新录制按钮状态
     window.ElectronCloud.UI.updateRecordButtonState();
 };
 
 // 更新录制按钮状态
-window.ElectronCloud.UI.updateRecordButtonState = function() {
+window.ElectronCloud.UI.updateRecordButtonState = function () {
     const state = window.ElectronCloud.state;
     const recordBtn = document.getElementById('record-rotation-btn');
-    
+
     if (!recordBtn) return;
-    
+
     // 录制按钮启用条件：有点云 && 自动旋转已启用
-    const canRecord = state.points && 
-                      state.autoRotate && 
-                      state.autoRotate.enabled === true;
-    
+    const canRecord = state.points &&
+        state.autoRotate &&
+        state.autoRotate.enabled === true;
+
     // 如果正在录制，保持启用状态
     if (state.isRecordingRotation) {
         recordBtn.disabled = false;
@@ -2266,9 +2421,9 @@ window.ElectronCloud.UI.updateRecordButtonState = function() {
 };
 
 // 切换录制状态
-window.ElectronCloud.UI.toggleRotationRecording = function() {
+window.ElectronCloud.UI.toggleRotationRecording = function () {
     const state = window.ElectronCloud.state;
-    
+
     if (state.isRecordingRotation) {
         // 停止录制
         window.ElectronCloud.UI.stopRotationRecording();
@@ -2279,26 +2434,26 @@ window.ElectronCloud.UI.toggleRotationRecording = function() {
 };
 
 // 开始录制旋转视频
-window.ElectronCloud.UI.startRotationRecording = function() {
+window.ElectronCloud.UI.startRotationRecording = function () {
     const state = window.ElectronCloud.state;
     const recordBtn = document.getElementById('record-rotation-btn');
-    
+
     if (!state.renderer || !state.autoRotate || !state.autoRotate.enabled) {
         alert('请先启用自动旋转');
         return;
     }
-    
+
     // 检查浏览器支持
     if (!window.MediaRecorder) {
         alert('您的浏览器不支持视频录制功能');
         return;
     }
-    
+
     // 【全屏画布方案】画布已经是全屏尺寸，直接录制即可
     const canvas = state.renderer.domElement;
-    
+
     console.log('录制画布尺寸 (全屏):', canvas.width, 'x', canvas.height);
-    
+
     // 尝试获取支持的 MIME 类型
     let mimeType = 'video/webm;codecs=vp9';
     if (!MediaRecorder.isTypeSupported(mimeType)) {
@@ -2311,11 +2466,11 @@ window.ElectronCloud.UI.startRotationRecording = function() {
             }
         }
     }
-    
+
     try {
         // 获取画布流，60fps
         const stream = canvas.captureStream(60);
-        
+
         // 计算视频比特率 - 基于实际像素分辨率
         // 高分辨率需要更高比特率才能保持质量
         const pixelCount = canvas.width * canvas.height;
@@ -2325,24 +2480,24 @@ window.ElectronCloud.UI.startRotationRecording = function() {
         const basePixels = 1920 * 1080;
         let videoBitrate = Math.round(baseBitrate * (pixelCount / basePixels));
         videoBitrate = Math.max(8000000, Math.min(videoBitrate, 30000000));
-        
-        console.log('录制参数: 画布尺寸', canvas.width, 'x', canvas.height, 
-                    ', 像素数:', pixelCount, ', 比特率:', (videoBitrate / 1000000).toFixed(1), 'Mbps');
-        
+
+        console.log('录制参数: 画布尺寸', canvas.width, 'x', canvas.height,
+            ', 像素数:', pixelCount, ', 比特率:', (videoBitrate / 1000000).toFixed(1), 'Mbps');
+
         // 创建 MediaRecorder
         state.mediaRecorder = new MediaRecorder(stream, {
             mimeType: mimeType,
             videoBitsPerSecond: videoBitrate
         });
-        
+
         state.recordedChunks = [];
-        
+
         state.mediaRecorder.ondataavailable = (e) => {
             if (e.data.size > 0) {
                 state.recordedChunks.push(e.data);
             }
         };
-        
+
         state.mediaRecorder.onstop = () => {
             // 生成视频文件
             const blob = new Blob(state.recordedChunks, { type: mimeType });
@@ -2357,32 +2512,32 @@ window.ElectronCloud.UI.startRotationRecording = function() {
                 document.body.removeChild(link);
                 URL.revokeObjectURL(url);
             }, 100);
-            
+
             console.log('录制完成，视频已保存');
-            
+
             // 提示用户如何使用WebM文件
             setTimeout(() => {
                 alert('视频已保存为 WebM 格式\n\n使用方法：\n• 可直接在浏览器中播放\n• 可上传到 B站、YouTube 等平台\n• 如需转为 MP4，可使用在线工具或 FFmpeg');
             }, 200);
         };
-        
+
         // 【关键】重置累计角度，从0开始计算
         state.autoRotate.totalAngle = 0;
         state.isRecordingRotation = true;
-        
+
         console.log('开始录制，累计角度已重置为0，目标:', (Math.PI * 2).toFixed(4), '(一周)');
-        
+
         // 开始录制
         state.mediaRecorder.start(100); // 每100ms收集一次数据
-        
+
         // 更新按钮状态
         if (recordBtn) {
             recordBtn.textContent = '停止';
             recordBtn.classList.add('recording');
         }
-        
+
         console.log('开始录制旋转视频，等待旋转一周...');
-        
+
     } catch (err) {
         console.error('录制启动失败:', err);
         alert('录制启动失败: ' + err.message);
@@ -2390,31 +2545,31 @@ window.ElectronCloud.UI.startRotationRecording = function() {
 };
 
 // 停止录制旋转视频
-window.ElectronCloud.UI.stopRotationRecording = function() {
+window.ElectronCloud.UI.stopRotationRecording = function () {
     const state = window.ElectronCloud.state;
     const recordBtn = document.getElementById('record-rotation-btn');
-    
+
     if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') {
         state.mediaRecorder.stop();
     }
-    
+
     state.isRecordingRotation = false;
     state.autoRotate.totalAngle = 0;
-    
+
     // 【全屏画布方案】不需要恢复尺寸，画布始终是全屏尺寸
-    
+
     // 更新按钮状态
     if (recordBtn) {
         recordBtn.textContent = '录制';
         recordBtn.classList.remove('recording');
     }
-    
+
     console.log('录制已停止');
 };
 
 // ========== 自定义轨道列表逻辑 ==========
 
-window.ElectronCloud.UI.initCustomOrbitalList = function() {
+window.ElectronCloud.UI.initCustomOrbitalList = function () {
     const select = document.getElementById('orbital-select');
     const container = document.getElementById('custom-orbital-list');
     if (!select || !container) return;
@@ -2428,34 +2583,34 @@ window.ElectronCloud.UI.initCustomOrbitalList = function() {
         item.className = 'glass-item';
         item.dataset.value = option.value;
         item.dataset.index = index;
-        
+
         // 文本内容（不再创建multi-indicator）
         const text = document.createElement('span');
         text.textContent = option.text;
         item.appendChild(text);
-        
+
         // 点击事件
         item.addEventListener('click', (e) => {
             window.ElectronCloud.UI.handleCustomItemClick(option.value, index, e);
         });
-        
+
         container.appendChild(item);
     });
 
     // 初始化视觉状态
     window.ElectronCloud.UI.updateCustomListVisuals();
-    
+
     // 监听原生 select 变化
     select.addEventListener('change', () => {
         window.ElectronCloud.UI.updateCustomListVisuals();
     });
 };
 
-window.ElectronCloud.UI.handleCustomItemClick = function(value, index, event) {
+window.ElectronCloud.UI.handleCustomItemClick = function (value, index, event) {
     const select = document.getElementById('orbital-select');
     const ui = window.ElectronCloud.ui;
     const state = window.ElectronCloud.state;
-    
+
     // 渲染完成后，比照模式下允许开关轨道显示
     if (state.renderingCompleted && ui.compareToggle && ui.compareToggle.checked) {
         // 调用toggleOrbitalVisibility切换轨道可见性，而不是改变选中状态
@@ -2464,14 +2619,14 @@ window.ElectronCloud.UI.handleCustomItemClick = function(value, index, event) {
         window.ElectronCloud.UI.updateCustomListVisualsWithVisibility();
         return;
     }
-    
+
     // 渲染开始后（有点或正在绘制）但未完成时，禁止操作
     const hasStarted = state.pointCount > 0 || state.isDrawing;
     if (hasStarted) {
         // 渲染进行中禁止操作
         return;
     }
-    
+
     if (ui.multiselectToggle && ui.multiselectToggle.checked) {
         select.options[index].selected = !select.options[index].selected;
     } else if (ui.compareToggle && ui.compareToggle.checked) {
@@ -2490,28 +2645,28 @@ window.ElectronCloud.UI.handleCustomItemClick = function(value, index, event) {
         Array.from(select.options).forEach(opt => opt.selected = false);
         select.options[index].selected = true;
     }
-    
+
     select.dispatchEvent(new Event('change'));
     window.ElectronCloud.UI.updateCustomListVisuals();
 };
 
-window.ElectronCloud.UI.updateCustomListVisuals = function() {
+window.ElectronCloud.UI.updateCustomListVisuals = function () {
     const select = document.getElementById('orbital-select');
     const container = document.getElementById('custom-orbital-list');
     const ui = window.ElectronCloud.ui;
     if (!select || !container) return;
-    
+
     const isMulti = ui.multiselectToggle && ui.multiselectToggle.checked;
     const isCompare = ui.compareToggle && ui.compareToggle.checked;
     const items = container.children;
     const selectedOptions = Array.from(select.selectedOptions);
-    
+
     Array.from(items).forEach((item, index) => {
         const option = select.options[index];
         const isSelected = option.selected;
         // 移除所有状态类，保持统一
         item.classList.remove('active', 'compare-a', 'compare-b', 'compare-c');
-        
+
         if (isCompare) {
             // 比照模式：使用红绿蓝颜色
             if (isSelected) {
@@ -2529,31 +2684,31 @@ window.ElectronCloud.UI.updateCustomListVisuals = function() {
 };
 
 // 根据轨道可见性更新自定义列表视觉（渲染完成后比照模式专用）
-window.ElectronCloud.UI.updateCustomListVisualsWithVisibility = function() {
+window.ElectronCloud.UI.updateCustomListVisualsWithVisibility = function () {
     const state = window.ElectronCloud.state;
     const ui = window.ElectronCloud.ui;
     const container = document.getElementById('custom-orbital-list');
     const select = document.getElementById('orbital-select');
     if (!container || !select) return;
-    
+
     // 仅在比照模式且渲染完成后生效
     if (!state.renderingCompleted || !ui.compareToggle || !ui.compareToggle.checked) {
         window.ElectronCloud.UI.updateCustomListVisuals();
         return;
     }
-    
+
     const items = container.children;
     const constants = window.ElectronCloud.constants;
-    
+
     Array.from(items).forEach((item, index) => {
         const option = select.options[index];
         const orbitalKey = option.value;
         const isRendered = state.currentOrbitals && state.currentOrbitals.includes(orbitalKey);
         const isVisible = isRendered && state.orbitalVisibility[orbitalKey] !== false;
-        
+
         // 清除所有状态类
         item.classList.remove('active', 'compare-a', 'compare-b', 'compare-c', 'orbital-hidden');
-        
+
         if (isRendered) {
             // 使用渲染时分配的颜色
             const colorIndex = state.currentOrbitals.indexOf(orbitalKey);
@@ -2578,7 +2733,7 @@ window.ElectronCloud.UI.updateCustomListVisualsWithVisibility = function() {
 
 // ========== 通用自定义下拉框逻辑 ==========
 
-window.ElectronCloud.UI.initCustomSelects = function() {
+window.ElectronCloud.UI.initCustomSelects = function () {
     // 查找所有非 orbital-select 的 select 元素（包括 max-points-select）
     const selects = document.querySelectorAll('select:not(#orbital-select)');
     selects.forEach(select => {
@@ -2588,23 +2743,23 @@ window.ElectronCloud.UI.initCustomSelects = function() {
     });
 };
 
-window.ElectronCloud.UI.createCustomSelect = function(select) {
+window.ElectronCloud.UI.createCustomSelect = function (select) {
     // 隐藏原生 select
     select.classList.add('hidden-native');
-    
+
     // 创建容器
     const container = document.createElement('div');
     container.className = 'custom-select-container';
-    
+
     // 创建触发器
     const trigger = document.createElement('div');
     trigger.className = 'custom-select-trigger';
     trigger.textContent = select.options[select.selectedIndex].text;
-    
+
     // 创建选项列表
     const optionsList = document.createElement('div');
     optionsList.className = 'custom-select-options';
-    
+
     // 填充选项
     Array.from(select.options).forEach((option, index) => {
         const customOption = document.createElement('div');
@@ -2612,42 +2767,46 @@ window.ElectronCloud.UI.createCustomSelect = function(select) {
         if (option.selected) customOption.classList.add('selected');
         customOption.textContent = option.text;
         customOption.dataset.value = option.value;
-        
+
         customOption.addEventListener('click', (e) => {
             e.stopPropagation();
             // 更新原生 select
             select.selectedIndex = index;
             select.dispatchEvent(new Event('change'));
-            
+
             // 更新 UI
             trigger.textContent = option.text;
             container.classList.remove('open');
-            
+
             // 更新选中状态样式
             Array.from(optionsList.children).forEach(child => child.classList.remove('selected'));
             customOption.classList.add('selected');
         });
-        
+
         optionsList.appendChild(customOption);
     });
-    
+
     // 触发器点击事件
     trigger.addEventListener('click', (e) => {
         e.stopPropagation();
+        // 【关键】如果原生 select 被禁用，不展开自定义下拉框
+        if (select.disabled) {
+            return;
+        }
         // 关闭其他打开的下拉框
         document.querySelectorAll('.custom-select-container.open').forEach(el => {
             if (el !== container) el.classList.remove('open');
         });
         container.classList.toggle('open');
     });
-    
+
     // 组装 DOM
     container.appendChild(trigger);
     container.appendChild(optionsList);
-    
+
     // 插入到原生 select 后面
     select.parentNode.insertBefore(container, select.nextSibling);
-    
+
     // 点击外部关闭
     document.addEventListener('click', (e) => {
         if (!container.contains(e.target)) {
@@ -2657,7 +2816,7 @@ window.ElectronCloud.UI.createCustomSelect = function(select) {
 };
 
 // ==================== 顶部模式切换栏 ====================
-window.ElectronCloud.UI.initModeSwitcher = function() {
+window.ElectronCloud.UI.initModeSwitcher = function () {
     const switcher = document.getElementById('mode-switcher');
     if (!switcher) return;
 
@@ -2686,13 +2845,15 @@ window.ElectronCloud.UI.initModeSwitcher = function() {
             const compareToggle = document.getElementById('compare-toggle');
             const controlPanel = document.getElementById('control-panel');
 
-            switch(mode) {
+            switch (mode) {
                 case 'single':
                     if (multiselectToggle) multiselectToggle.checked = false;
                     if (compareToggle) compareToggle.checked = false;
                     // 移除杂化模式的类和状态
                     if (controlPanel) controlPanel.classList.remove('hybrid-active');
                     state.isHybridMode = false;
+                    // 切换为数据面板模式
+                    window.ElectronCloud.UI.setHybridPanelMode(false);
                     // 触发change事件以执行原有逻辑
                     multiselectToggle?.dispatchEvent(new Event('change'));
                     break;
@@ -2702,6 +2863,8 @@ window.ElectronCloud.UI.initModeSwitcher = function() {
                     // 移除杂化模式的类和状态
                     if (controlPanel) controlPanel.classList.remove('hybrid-active');
                     state.isHybridMode = false;
+                    // 切换为数据面板模式
+                    window.ElectronCloud.UI.setHybridPanelMode(false);
                     multiselectToggle?.dispatchEvent(new Event('change'));
                     break;
                 case 'compare':
@@ -2710,6 +2873,8 @@ window.ElectronCloud.UI.initModeSwitcher = function() {
                     // 移除杂化模式的类和状态
                     if (controlPanel) controlPanel.classList.remove('hybrid-active');
                     state.isHybridMode = false;
+                    // 切换为数据面板模式
+                    window.ElectronCloud.UI.setHybridPanelMode(false);
                     compareToggle?.dispatchEvent(new Event('change'));
                     break;
                 case 'hybrid':
@@ -2720,12 +2885,22 @@ window.ElectronCloud.UI.initModeSwitcher = function() {
                     if (controlPanel) controlPanel.classList.add('hybrid-active');
                     // 【核心】设置杂化模式状态
                     state.isHybridMode = true;
+                    // 切换为杂化面板模式
+                    window.ElectronCloud.UI.setHybridPanelMode(true);
                     // 重置杂化采样缓存
                     if (window.ElectronCloud.Sampling && window.ElectronCloud.Sampling.resetHybridCache) {
                         window.ElectronCloud.Sampling.resetHybridCache();
                     }
                     // 触发多选模式的逻辑（复用选择界面）
                     multiselectToggle?.dispatchEvent(new Event('change'));
+                    // 禁用3D角向形状开关
+                    window.ElectronCloud.UI.updateAngular3DToggleState();
+                    // 禁用数据面板中的角向分布曲线选项
+                    window.ElectronCloud.UI.disableAngularPlotOption();
+                    // 确保轨道轮廓可用（因为 updateAngular3DToggleState 在杂化模式下 return 不会调用它）
+                    window.ElectronCloud.UI.updateContour3DToggleState();
+                    // 更新杂化轨道按钮
+                    window.ElectronCloud.UI.updateHybridOrbitalButtons();
                     console.log('杂化模式已启用 - 使用波函数线性叠加计算概率密度');
                     break;
             }
@@ -2734,7 +2909,7 @@ window.ElectronCloud.UI.initModeSwitcher = function() {
 };
 
 // 模式切换栏自动隐藏功能
-window.ElectronCloud.UI.initModeSwitcherAutoHide = function() {
+window.ElectronCloud.UI.initModeSwitcherAutoHide = function () {
     const switcher = document.getElementById('mode-switcher');
     if (!switcher) return;
 
@@ -2745,9 +2920,9 @@ window.ElectronCloud.UI.initModeSwitcherAutoHide = function() {
     // 检查是否为全屏模式
     const checkFullscreen = () => {
         return document.fullscreenElement ||
-               document.webkitFullscreenElement ||
-               document.mozFullScreenElement ||
-               document.msFullscreenElement;
+            document.webkitFullscreenElement ||
+            document.mozFullScreenElement ||
+            document.msFullscreenElement;
     };
 
     // 隐藏模式切换栏
@@ -2826,7 +3001,7 @@ window.ElectronCloud.UI.initModeSwitcherAutoHide = function() {
 };
 
 // 更新模式切换栏的可用状态（继承轨道点选逻辑）
-window.ElectronCloud.UI.updateModeSwitcherState = function() {
+window.ElectronCloud.UI.updateModeSwitcherState = function () {
     const switcher = document.getElementById('mode-switcher');
     if (!switcher) return;
 
@@ -2840,4 +3015,251 @@ window.ElectronCloud.UI.updateModeSwitcherState = function() {
         item.style.opacity = hasStarted ? '0.5' : '1';
         item.title = hasStarted ? '电子云绘制中，暂时无法切换模式' : '';
     });
+};
+
+// ==================== 杂化轨道控制面板 ====================
+
+/**
+ * 初始化杂化轨道控制面板
+ */
+window.ElectronCloud.UI.initHybridPanel = function () {
+    const state = window.ElectronCloud.state;
+
+    // 初始化杂化轨道相关状态
+    state.hybridOrbitalPointsMap = {}; // 记录每个杂化轨道的点索引
+    state.hybridOrbitalVisibility = {}; // 记录每个杂化轨道的可见性
+
+    // 监听轨道选择变化，动态更新按钮
+    const select = document.getElementById('orbital-select');
+    if (select) {
+        select.addEventListener('change', () => {
+            if (state.isHybridMode) {
+                window.ElectronCloud.UI.updateHybridOrbitalButtons();
+            }
+        });
+    }
+};
+
+/**
+ * 设置杂化面板模式（切换数据面板/杂化面板显示）
+ * @param {boolean} isHybridMode - 是否为杂化模式
+ */
+window.ElectronCloud.UI.setHybridPanelMode = function (isHybridMode) {
+    const dataPanel = document.getElementById('data-panel');
+    const dataModeContent = document.getElementById('data-mode-content');
+    const hybridModeContent = document.getElementById('hybrid-mode-content');
+    const panelTitle = document.getElementById('data-panel-title');
+    const panelTab = document.getElementById('data-panel-tab');
+
+    if (!dataPanel || !dataModeContent || !hybridModeContent) return;
+
+    if (isHybridMode) {
+        // 切换到杂化模式
+        dataModeContent.style.display = 'none';
+        hybridModeContent.style.display = 'block';
+        dataPanel.classList.add('hybrid-mode');
+        if (panelTitle) panelTitle.textContent = '杂化';
+        if (panelTab) panelTab.textContent = '杂化 ▸';
+    } else {
+        // 切换到数据模式
+        dataModeContent.style.display = 'block';
+        hybridModeContent.style.display = 'none';
+        dataPanel.classList.remove('hybrid-mode');
+        if (panelTitle) panelTitle.textContent = '数据';
+        if (panelTab) panelTab.textContent = '数据 ▸';
+    }
+};
+
+/**
+ * 更新杂化轨道按钮（根据选中轨道数量动态生成）
+ */
+window.ElectronCloud.UI.updateHybridOrbitalButtons = function () {
+    const state = window.ElectronCloud.state;
+    const container = document.getElementById('hybrid-orbital-controls');
+    const select = document.getElementById('orbital-select');
+
+    if (!container || !select || !state.isHybridMode) return;
+
+    // 获取选中的轨道数量
+    const selectedOrbitals = Array.from(select.selectedOptions).map(opt => opt.value);
+    const numOrbitals = selectedOrbitals.length;
+
+    // 清空容器
+    container.innerHTML = '';
+
+    // 重置可见性状态
+    state.hybridOrbitalVisibility = {};
+
+    // 为每个杂化轨道创建按钮
+    for (let i = 0; i < numOrbitals; i++) {
+        const btn = document.createElement('button');
+        btn.className = 'hybrid-orbital-btn disabled';
+        btn.textContent = `杂化轨道${i + 1}`;
+        btn.dataset.index = i;
+
+        // 初始化可见性为true
+        state.hybridOrbitalVisibility[i] = true;
+
+        // 渲染未完成时按钮不可点击
+        btn.addEventListener('click', () => {
+            if (!state.renderingCompleted) return;
+            window.ElectronCloud.UI.toggleHybridOrbitalVisibility(i);
+        });
+
+        container.appendChild(btn);
+    }
+
+    console.log(`杂化面板：生成了 ${numOrbitals} 个轨道按钮`);
+};
+
+/**
+ * 渲染完成后启用杂化轨道按钮
+ */
+window.ElectronCloud.UI.enableHybridOrbitalButtons = function () {
+    const container = document.getElementById('hybrid-orbital-controls');
+    if (!container) return;
+
+    const buttons = container.querySelectorAll('.hybrid-orbital-btn');
+    buttons.forEach(btn => {
+        btn.classList.remove('disabled');
+        btn.classList.add('clickable');
+    });
+
+    console.log('杂化面板：按钮已启用，可点击控制显示');
+};
+
+/**
+ * 切换杂化轨道的可见性
+ * @param {number} orbitalIndex - 杂化轨道索引
+ */
+window.ElectronCloud.UI.toggleHybridOrbitalVisibility = function (orbitalIndex) {
+    const state = window.ElectronCloud.state;
+    const container = document.getElementById('hybrid-orbital-controls');
+
+    if (!state.points || !state.hybridOrbitalPointsMap) return;
+
+    // 切换可见性状态
+    state.hybridOrbitalVisibility[orbitalIndex] = !state.hybridOrbitalVisibility[orbitalIndex];
+    const isVisible = state.hybridOrbitalVisibility[orbitalIndex];
+
+    // 更新按钮样式
+    if (container) {
+        const btn = container.querySelector(`.hybrid-orbital-btn[data-index="${orbitalIndex}"]`);
+        if (btn) {
+            if (isVisible) {
+                btn.classList.remove('hidden-orbital');
+            } else {
+                btn.classList.add('hidden-orbital');
+            }
+        }
+    }
+
+    // 获取该轨道的所有点索引
+    const pointIndices = state.hybridOrbitalPointsMap[orbitalIndex] || [];
+
+    if (pointIndices.length === 0) {
+        console.warn(`杂化轨道 ${orbitalIndex} 没有采样点`);
+        return;
+    }
+
+    // 通过修改透明度来隐藏/显示点
+    const colors = state.points.geometry.attributes.color.array;
+    const targetAlpha = isVisible ? 1.0 : 0.0;
+
+    pointIndices.forEach(pointIndex => {
+        const i3 = pointIndex * 3;
+        // 通过设置颜色为0来"隐藏"点（配合点大小或透明度）
+        if (isVisible) {
+            // 恢复原始颜色
+            if (state.baseColors) {
+                colors[i3] = state.baseColors[i3];
+                colors[i3 + 1] = state.baseColors[i3 + 1];
+                colors[i3 + 2] = state.baseColors[i3 + 2];
+            } else {
+                colors[i3] = 1;
+                colors[i3 + 1] = 1;
+                colors[i3 + 2] = 1;
+            }
+        } else {
+            // 设置为全黑来"隐藏"
+            colors[i3] = 0;
+            colors[i3 + 1] = 0;
+            colors[i3 + 2] = 0;
+        }
+    });
+
+    state.points.geometry.attributes.color.needsUpdate = true;
+
+    // 【同步更新】如果轨道轮廓开关开启，需要更新等值面
+    const hybridContourToggle = document.getElementById('hybrid-contour-toggle');
+    if (hybridContourToggle && hybridContourToggle.checked) {
+        // 触发等值面重新渲染
+        hybridContourToggle.dispatchEvent(new Event('change'));
+    }
+
+    console.log(`杂化轨道 ${orbitalIndex + 1} ${isVisible ? '显示' : '隐藏'}，影响 ${pointIndices.length} 个点`);
+};
+
+/**
+ * 重置杂化面板状态
+ */
+window.ElectronCloud.UI.resetHybridPanel = function () {
+    const state = window.ElectronCloud.state;
+    const container = document.getElementById('hybrid-orbital-controls');
+
+    // 重置状态
+    state.hybridOrbitalPointsMap = {};
+    state.hybridOrbitalVisibility = {};
+
+    // 清空按钮容器
+    if (container) {
+        container.innerHTML = '';
+    }
+
+    // 重新生成按钮（如果在杂化模式）
+    if (state.isHybridMode) {
+        window.ElectronCloud.UI.updateHybridOrbitalButtons();
+    }
+};
+
+/**
+ * 杂化模式轨道轮廓开关处理
+ */
+window.ElectronCloud.UI.onHybridContourToggle = function (e) {
+    const state = window.ElectronCloud.state;
+    const checked = e.target.checked;
+
+    if (!state.isHybridMode) return;
+
+    // 清除现有轮廓
+    if (state.hybridContourOverlays) {
+        for (const overlay of state.hybridContourOverlays) {
+            if (!overlay) continue; // 【关键修复】跳过空对象
+            state.scene.remove(overlay);
+            overlay.traverse((child) => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) child.material.dispose();
+            });
+        }
+        state.hybridContourOverlays = [];
+    }
+
+    if (checked) {
+        // 创建独立的杂化轨道轮廓
+        if (window.ElectronCloud.Visualization && window.ElectronCloud.Visualization.createHybridContourOverlays) {
+            state.hybridContourOverlays = window.ElectronCloud.Visualization.createHybridContourOverlays();
+
+            // 添加到场景并同步旋转
+            for (const overlay of state.hybridContourOverlays) {
+                // 【关键修复】跳过空对象（隐藏的轨道）
+                if (!overlay) continue;
+
+                if (state.points) {
+                    overlay.rotation.copy(state.points.rotation);
+                    overlay.updateMatrix();
+                }
+                state.scene.add(overlay);
+            }
+        }
+    }
 };

@@ -75,7 +75,8 @@
     /* ===== 三大样式系统变量（由材质加载器动态设置）===== */
 
     /* 面板样式 - 几乎不模糊，突出内容 */
-    --panel-bg: rgba(30, 30, 35, 0.25); /* 默认值，将被材质加载器覆盖 */
+    --panel-bg: rgba(30, 30, 35, 0.25);
+    /* 默认值，将被材质加载器覆盖 */
     --panel-blur: blur(1px);
     --panel-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
     --panel-border: 1px solid rgba(255, 255, 255, 0.08);
@@ -118,7 +119,9 @@ body {
 }
 
 /* 全局字体加粗 */
-*, *::before, *::after {
+*,
+*::before,
+*::after {
     font-weight: inherit;
 }
 
@@ -133,8 +136,10 @@ body {
 }
 
 * {
-    scrollbar-width: none; /* Firefox */
-    -ms-overflow-style: none; /* IE/Edge */
+    scrollbar-width: none;
+    /* Firefox */
+    -ms-overflow-style: none;
+    /* IE/Edge */
 }
 
 /* ====================================
@@ -162,14 +167,16 @@ body {
         0 12px 40px rgba(0, 0, 0, 0.5);
     width: var(--panel-width);
     transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1),
-                opacity 0.3s ease,
-                box-shadow 0.3s ease,
-                border-color 0.3s ease;
+        opacity 0.3s ease,
+        box-shadow 0.3s ease,
+        border-color 0.3s ease;
     box-sizing: border-box;
     padding: 0;
     z-index: var(--z-panel);
-    overflow: visible; /* 允许标签和手柄超出面板 */
-    will-change: transform; /* 优化动画性能 */
+    overflow: visible;
+    /* 允许标签和手柄超出面板 */
+    will-change: transform;
+    /* 优化动画性能 */
 }
 
 /* 面板玻璃边框效果 - 静态高光边框，左侧面板默认右侧、顶部、底部亮 */
@@ -234,17 +241,23 @@ body {
 }
 
 .panel-content {
-    position: relative; /* 为伪元素提供定位参考 */
-    padding: var(--spacing-panel); /* 统一内边距，左右上下等距 */
+    position: relative;
+    /* 为伪元素提供定位参考 */
+    padding: var(--spacing-panel);
+    /* 统一内边距，左右上下等距 */
     /* 允许发光效果溢出，不裁剪 box-shadow */
     overflow: visible;
-    border-radius: inherit; /* 继承面板圆角 */
-    scrollbar-width: none; /* Firefox */
-    -ms-overflow-style: none; /* IE/Edge */
+    border-radius: inherit;
+    /* 继承面板圆角 */
+    scrollbar-width: none;
+    /* Firefox */
+    -ms-overflow-style: none;
+    /* IE/Edge */
 }
 
 .panel-content::-webkit-scrollbar {
-    display: none; /* Chrome/Safari */
+    display: none;
+    /* Chrome/Safari */
 }
 
 /* 面板标签 - 在框外，与面板材质一致 */
@@ -300,12 +313,14 @@ body {
 /* 面板头部 */
 .panel-header {
     display: flex;
-    align-items: center; /* 垂直居中对齐 */
+    align-items: center;
+    /* 垂直居中对齐 */
     justify-content: space-between;
     gap: var(--spacing-lg);
     border-bottom: 1px solid rgba(255, 255, 255, 0.15);
     padding-bottom: 12px;
-    margin-bottom: var(--spacing-panel); /* 与内容的间距 */
+    margin-bottom: var(--spacing-panel);
+    /* 与内容的间距 */
 }
 
 .panel-header h3 {
@@ -316,17 +331,20 @@ body {
     flex: 1;
 }
 
-.panel-header > div {
+.panel-header>div {
     display: flex;
     gap: var(--spacing-xs);
-    flex-shrink: 0; /* 防止按钮容器被压缩 */
+    flex-shrink: 0;
+    /* 防止按钮容器被压缩 */
 }
 
 /* 面板主体 */
 .panel-body {
-    margin-top: 0; /* 由panel-content的padding控制 */
+    margin-top: 0;
+    /* 由panel-content的padding控制 */
     flex: 1;
-    overflow: visible; /* 允许发光效果溢出 */
+    overflow: visible;
+    /* 允许发光效果溢出 */
     padding-right: 0;
 }
 
@@ -350,7 +368,8 @@ body {
 }
 
 #control-panel .panel-content {
-    overflow: visible; /* 允许发光效果溢出 */
+    overflow: visible;
+    /* 允许发光效果溢出 */
     display: flex;
     flex-direction: column;
 }
@@ -377,7 +396,8 @@ body {
 /* 数据面板放大模式 */
 #data-panel.enlarged {
     width: 520px;
-    overflow: visible; /* 允许抓手超出 */
+    overflow: visible;
+    /* 允许抓手超出 */
     /* 材质继承.panel，无需单独设置 */
 }
 
@@ -385,7 +405,8 @@ body {
     height: 380px;
     background-color: rgba(0, 0, 0, 0.4);
     position: relative;
-    flex-shrink: 0; /* 防止图表容器被压缩 */
+    flex-shrink: 0;
+    /* 防止图表容器被压缩 */
 }
 
 /* ====================================
@@ -396,7 +417,8 @@ body {
 
 /* 控件组 */
 .control-group {
-    margin-bottom: var(--spacing-panel); /* 与padding一致的间距 */
+    margin-bottom: var(--spacing-panel);
+    /* 与padding一致的间距 */
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -410,16 +432,18 @@ body {
 
 /* 轨道列表容器 - 特殊布局 */
 .control-group.list-container {
-    align-items: stretch; /* 让子元素填满高度 */
+    align-items: stretch;
+    /* 让子元素填满高度 */
 }
 
 /* 默认模式下的label样式 - 垂直居中 */
-.control-group.list-container > label {
+.control-group.list-container>label {
     flex-shrink: 0;
     width: 56px;
     margin-right: var(--spacing-md);
     display: flex;
-    align-items: center; /* 垂直居中 */
+    align-items: center;
+    /* 垂直居中 */
 }
 
 /* glass-list保持固定宽度 */
@@ -430,7 +454,8 @@ body {
 
 /* 标签 */
 label {
-    margin-right: var(--spacing-md); /* 横向间距统一 */
+    margin-right: var(--spacing-md);
+    /* 横向间距统一 */
     flex-shrink: 0;
     font-size: 14px;
     font-weight: bold;
@@ -503,15 +528,18 @@ button:disabled {
 .action-buttons {
     display: flex;
     justify-content: center;
-    gap: var(--spacing-md); /* 横向间距统一 */
+    gap: var(--spacing-md);
+    /* 横向间距统一 */
     flex-wrap: nowrap;
     width: 100%;
-    margin-top: 0; /* 由control-group的margin控制 */
+    margin-top: 0;
+    /* 由control-group的margin控制 */
 }
 
 .action-buttons button {
     flex: 1;
-    min-width: 0; /* 允许按钮缩小 */
+    min-width: 0;
+    /* 允许按钮缩小 */
     /* 继承全局button样式，不需要额外覆盖 */
 }
 
@@ -553,7 +581,8 @@ button:disabled {
 
 /* 多选控件布局 - 纵向排列，填满整个高度 */
 .multiselect-controls {
-    display: none; /* 默认隐藏 */
+    display: none;
+    /* 默认隐藏 */
 }
 
 /* 当显示时，作为替代标签，高度与列表一致 */
@@ -563,7 +592,8 @@ button:disabled {
     align-items: flex-start;
     justify-content: flex-start;
     width: 56px;
-    height: 108px; /* 与列表和清空按钮高度一致 */
+    height: 108px;
+    /* 与列表和清空按钮高度一致 */
     flex-shrink: 0;
     margin-right: var(--spacing-md);
 }
@@ -644,7 +674,8 @@ button:disabled {
 .mode-toggle-row {
     display: flex;
     gap: var(--spacing-md);
-    margin-bottom: var(--spacing-panel); /* 与control-group间距一致 */
+    margin-bottom: var(--spacing-panel);
+    /* 与control-group间距一致 */
     padding: 0;
 }
 
@@ -714,9 +745,12 @@ button:disabled {
 /* 功能行 */
 .feature-row {
     display: flex;
-    align-items: center; /* 垂直居中 */
-    gap: var(--spacing-md); /* 增加间距 */
-    margin-bottom: var(--spacing-panel); /* 与其他控件间距一致 */
+    align-items: center;
+    /* 垂直居中 */
+    gap: var(--spacing-md);
+    /* 增加间距 */
+    margin-bottom: var(--spacing-panel);
+    /* 与其他控件间距一致 */
 }
 
 .feature-row:last-of-type {
@@ -772,11 +806,13 @@ button:disabled {
 
 /* 功能框 - 与按钮样式统一 */
 .feature-box {
-    flex: 1; /* 占据剩余空间 */
+    flex: 1;
+    /* 占据剩余空间 */
     display: flex;
     align-items: center;
     justify-content: space-between;
-    min-height: 44px; /* 与手势按钮等高 */
+    min-height: 44px;
+    /* 与手势按钮等高 */
     background: var(--color-bg-primary);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
@@ -875,8 +911,15 @@ button:disabled {
 }
 
 @keyframes recording-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.6; }
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.6;
+    }
 }
 
 /* 旋转轴输入框 */
@@ -1046,7 +1089,8 @@ select:focus {
     top: calc(100% + 4px);
     left: 0;
     right: 0;
-    max-height: 150px; /* 限制高度 */
+    max-height: 150px;
+    /* 限制高度 */
     overflow-y: auto;
     background: var(--dropdown-bg);
     border: var(--dropdown-border);
@@ -1183,8 +1227,15 @@ select option:checked {
 }
 
 @keyframes pulse-blue {
-    0%, 100% { box-shadow: 0 0 5px var(--color-gesture-glow); }
-    50% { box-shadow: 0 0 15px rgba(0, 180, 0, 0.8); }
+
+    0%,
+    100% {
+        box-shadow: 0 0 5px var(--color-gesture-glow);
+    }
+
+    50% {
+        box-shadow: 0 0 15px rgba(0, 180, 0, 0.8);
+    }
 }
 
 /* 当前点数显示 - 使用面板玻璃样式 */
@@ -1538,7 +1589,8 @@ input[type="range"]:focus::-moz-range-thumb {
     display: none;
     opacity: 0;
     transition: opacity var(--transition-normal);
-    overflow: visible; /* 允许发光效果溢出 */
+    overflow: visible;
+    /* 允许发光效果溢出 */
     box-sizing: border-box;
 }
 
@@ -1566,7 +1618,8 @@ input[type="range"]:focus::-moz-range-thumb {
 
 .submenu-body {
     padding: var(--spacing-lg) 14px;
-    overflow: visible; /* 允许发光效果溢出 */
+    overflow: visible;
+    /* 允许发光效果溢出 */
 }
 
 .submenu-body .control-group {
@@ -1706,7 +1759,8 @@ select:focus {
     top: calc(100% + 4px);
     left: 0;
     right: 0;
-    max-height: 150px; /* 限制高度 */
+    max-height: 150px;
+    /* 限制高度 */
     overflow-y: auto;
     background: rgba(25, 25, 30, 0.95);
     border: 1px solid rgba(255, 255, 255, 0.15);
@@ -1812,7 +1866,7 @@ select option:checked {
     color: #ffffff !important;
     font-weight: bold;
     border-left: 3px solid var(--color-active-border);
-    box-shadow: 
+    box-shadow:
         0 0 24px var(--color-active-glow),
         0 0 40px var(--color-active-glow);
 }
@@ -1837,7 +1891,7 @@ select[size]:not([size="1"]) {
     font-weight: bold;
     font-size: 1.05em;
     margin: 2px var(--spacing-xs);
-    box-shadow: 
+    box-shadow:
         0 0 24px var(--color-active-glow),
         0 0 40px var(--color-active-glow) !important;
     padding: var(--spacing-xs) var(--spacing-md);
@@ -1995,7 +2049,7 @@ input[type="checkbox"]:hover {
 
 input[type="checkbox"]:checked {
     background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(220, 220, 220, 1) 100%);
-    box-shadow: 
+    box-shadow:
         0 0 24px var(--color-active-glow),
         0 0 40px var(--color-active-glow);
 }
@@ -2005,7 +2059,7 @@ input[type="checkbox"]:disabled {
     cursor: not-allowed;
 }
 
-input[type="checkbox"]:disabled + label {
+input[type="checkbox"]:disabled+label {
     opacity: 0.5;
     cursor: not-allowed;
 }
@@ -2069,11 +2123,11 @@ input[type="range"]::-moz-range-thumb {
 .brightness-slider-container input[type="range"] {
     width: 100%;
     margin: 0;
-    background: linear-gradient(90deg, 
-        rgba(255, 255, 255, 0.2) 0%, 
-        rgba(255, 255, 255, 0.2) 50%, 
-        rgba(255, 255, 255, 0.5) 50%, 
-        rgba(255, 255, 255, 0.5) 100%);
+    background: linear-gradient(90deg,
+            rgba(255, 255, 255, 0.2) 0%,
+            rgba(255, 255, 255, 0.2) 50%,
+            rgba(255, 255, 255, 0.5) 50%,
+            rgba(255, 255, 255, 0.5) 100%);
 }
 
 .brightness-marker {
@@ -2082,11 +2136,14 @@ input[type="range"]::-moz-range-thumb {
 
 /* ========== 图表容器 ========== */
 .chart-container {
-    position: relative; /* 为内部absolute定位的手柄提供参�?*/
+    position: relative;
+    /* 为内部absolute定位的手柄提供参�?*/
     width: 100%;
     height: 200px;
-    margin-top: var(--spacing-panel); /* 与其他控件间距一�?*/
-    margin-bottom: 0; /* 作为最后一个元素，底边距由panel-content的padding控制 */
+    margin-top: var(--spacing-panel);
+    /* 与其他控件间距一�?*/
+    margin-bottom: 0;
+    /* 作为最后一个元素，底边距由panel-content的padding控制 */
     border-radius: var(--radius-lg);
     background-color: rgba(0, 0, 0, 0.3);
     padding: var(--spacing-md);
@@ -2186,21 +2243,21 @@ canvas {
     transition: all var(--transition-slow);
 }
 
-.toggle-switch input:checked + .toggle-slider {
+.toggle-switch input:checked+.toggle-slider {
     background-color: var(--color-active-bg);
     border-color: var(--color-active-border);
-    box-shadow: 
+    box-shadow:
         0 0 24px var(--color-active-glow),
         0 0 40px var(--color-active-glow);
 }
 
-.toggle-switch input:checked + .toggle-slider:before {
+.toggle-switch input:checked+.toggle-slider:before {
     transform: translateX(18px);
     background-color: var(--color-active-text);
 }
 
-.toggle-switch input:focus + .toggle-slider {
-    box-shadow: 
+.toggle-switch input:focus+.toggle-slider {
+    box-shadow:
         0 0 24px var(--color-active-glow),
         0 0 40px var(--color-active-glow);
 }
@@ -2239,7 +2296,7 @@ canvas {
     background: var(--color-settings-bg);
     border-color: var(--color-settings-border);
     color: #fff;
-    box-shadow: 
+    box-shadow:
         0 0 24px var(--color-active-glow),
         0 0 40px var(--color-active-glow),
         inset 0 1px 0 rgba(255, 255, 255, 0.15);
@@ -2262,11 +2319,11 @@ canvas {
         max-height: calc(100vh - 20px);
         top: 10px;
     }
-    
+
     .control-group {
         margin-bottom: 10px;
     }
-    
+
     h3 {
         margin-bottom: var(--spacing-lg);
         font-size: 1.1em;
@@ -2277,11 +2334,11 @@ canvas {
     #control-panel {
         padding: var(--spacing-lg);
     }
-    
+
     .control-group {
         margin-bottom: var(--spacing-md);
     }
-    
+
     h3 {
         margin-bottom: 10px;
         font-size: 1em;
@@ -2294,6 +2351,7 @@ canvas {
         opacity: 0;
         transform: translateX(-20px);
     }
+
     to {
         opacity: 1;
         transform: translateX(0);
@@ -2305,6 +2363,7 @@ canvas {
         opacity: 0;
         transform: translateX(20px);
     }
+
     to {
         opacity: 1;
         transform: translateX(0);
@@ -2312,9 +2371,17 @@ canvas {
 }
 
 @keyframes selectPulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.02); }
-    100% { transform: scale(1); }
+    0% {
+        transform: scale(1);
+    }
+
+    50% {
+        transform: scale(1.02);
+    }
+
+    100% {
+        transform: scale(1);
+    }
 }
 
 /* ========== 实验功能面板特殊样式 ========== */
@@ -2322,7 +2389,8 @@ canvas {
     display: flex;
     flex-direction: column;
     gap: 10px;
-    margin-top: var(--spacing-panel); /* 与feature-row间距一�?*/
+    margin-top: var(--spacing-panel);
+    /* 与feature-row间距一�?*/
 }
 
 #experimental-panel .action-buttons button {
@@ -2351,22 +2419,27 @@ canvas {
 
 /* Custom Orbital List Styles */
 .glass-list {
-    height: 108px; /* 3个轨道高度，与清空按钮一对 */
+    height: 108px;
+    /* 3个轨道高度，与清空按钮一对 */
     overflow-y: auto;
-    overflow-x: visible; /* 允许发光横向溢出 */
+    overflow-x: visible;
+    /* 允许发光横向溢出 */
     background: var(--color-bg-primary);
     -webkit-backdrop-filter: var(--panel-blur);
     backdrop-filter: var(--panel-blur);
-    border-radius: var(--radius-lg); /* 与按钮圆角一致 */
+    border-radius: var(--radius-lg);
+    /* 与按钮圆角一致 */
     border: 1px solid var(--color-border);
     padding: 4px;
-    margin-top: 0; /* 与清空按钮顶部对齐 */
+    margin-top: 0;
+    /* 与清空按钮顶部对齐 */
 }
 
 .glass-item {
     padding: 8px 12px;
     margin-bottom: 4px;
-    border-radius: var(--radius-md); /* 与按钮内部圆角一致 */
+    border-radius: var(--radius-md);
+    /* 与按钮内部圆角一致 */
     cursor: pointer;
     transition: all 0.2s ease;
     font-size: 13px;
@@ -2374,7 +2447,8 @@ canvas {
     display: flex;
     align-items: center;
     position: relative;
-    border: 1px solid transparent; /* 预留边框位置 */
+    border: 1px solid transparent;
+    /* 预留边框位置 */
 }
 
 .glass-item:hover {
@@ -2386,7 +2460,7 @@ canvas {
 .glass-item.active {
     background: var(--color-active-bg);
     color: var(--color-active-text);
-    box-shadow: 
+    box-shadow:
         0 0 24px var(--color-active-glow),
         0 0 40px var(--color-active-glow),
         inset 0 1px 0 rgba(255, 255, 255, 0.15);
@@ -2434,28 +2508,34 @@ canvas {
 
 /* Multi-Select Checkbox Indicator - 不显示，统一样式 */
 .glass-item .multi-indicator {
-    display: none !important; /* 彻底隐藏 */
+    display: none !important;
+    /* 彻底隐藏 */
 }
 
 .glass-item.active .multi-indicator {
-    display: none !important; /* 彻底隐藏 */
+    display: none !important;
+    /* 彻底隐藏 */
 }
 
 /* Custom Scrollbar for Glass List - Hidden as requested */
 .glass-list::-webkit-scrollbar {
     display: none;
 }
+
 .glass-list {
     scrollbar-width: none;
     -ms-overflow-style: none;
 }
+
 .glass-list::-webkit-scrollbar-track {
     background: transparent;
 }
+
 .glass-list::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.15);
     border-radius: 2px;
 }
+
 .glass-list::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.3);
 }
@@ -2560,9 +2640,11 @@ canvas {
 .custom-select-options::-webkit-scrollbar {
     width: 4px;
 }
+
 .custom-select-options::-webkit-scrollbar-track {
     background: transparent;
 }
+
 .custom-select-options::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.2);
     border-radius: 2px;
@@ -2583,6 +2665,12 @@ select {
     border-radius: var(--radius-sm) !important;
     color: var(--color-text-primary) !important;
     padding: 4px 8px;
+}
+
+select:disabled {
+    opacity: 0.5 !important;
+    cursor: not-allowed !important;
+    pointer-events: none !important;
 }
 
 /* Custom Range Slider */
@@ -2625,7 +2713,8 @@ input[type=range]::-webkit-slider-thumb:hover {
 }
 
 /* Feature Box & Mode Toggle Box Glass Effect - 使用面板模糊样式 */
-.feature-box, .mode-toggle-box {
+.feature-box,
+.mode-toggle-box {
     background: var(--color-bg-primary);
     -webkit-backdrop-filter: var(--panel-blur);
     backdrop-filter: var(--panel-blur);
@@ -2654,8 +2743,8 @@ input[type=range]::-webkit-slider-thumb:hover {
 
     /* 进入和离场过渡动画 */
     transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1),
-                opacity 0.4s ease,
-                scale 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        opacity 0.4s ease,
+        scale 0.6s cubic-bezier(0.4, 0, 0.2, 1);
     opacity: 1;
     pointer-events: auto;
     transform-origin: center top;
@@ -2705,11 +2794,14 @@ input[type=range]::-webkit-slider-thumb:hover {
 }
 
 @keyframes activePulse {
-    0%, 100% {
+
+    0%,
+    100% {
         box-shadow:
             0 0 16px rgba(0, 180, 0, 0.25),
             0 0 32px rgba(0, 180, 0, 0.15);
     }
+
     50% {
         box-shadow:
             0 0 20px rgba(0, 180, 0, 0.35),
@@ -2723,4 +2815,66 @@ input[type=range]::-webkit-slider-thumb:hover {
     opacity: 0;
     pointer-events: none;
     transform-origin: center top;
+}
+
+/* ========== 杂化轨道控制面板样式 ========== */
+
+/* 杂化模式下的数据面板 */
+#data-panel.hybrid-mode .panel-header #chart-enlarge-btn,
+#data-panel.hybrid-mode #chart-resize-handle {
+    display: none !important;
+}
+
+/* 杂化轨道控制容器 */
+#hybrid-orbital-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 4px 0;
+}
+
+/* 杂化轨道按钮 */
+.hybrid-orbital-btn {
+    padding: 12px 16px;
+    font-size: 13px;
+    font-weight: bold;
+    color: #ffffff;
+    background: rgba(0, 180, 0, 0.25);
+    border: 1px solid rgba(0, 220, 0, 0.6);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    text-align: center;
+    box-shadow:
+        0 0 16px rgba(0, 180, 0, 0.25),
+        0 0 32px rgba(0, 180, 0, 0.15);
+    animation: activePulse 2s ease-in-out infinite;
+}
+
+/* 按钮禁用状态（渲染前） */
+.hybrid-orbital-btn.disabled {
+    cursor: not-allowed;
+    opacity: 0.8;
+}
+
+/* 按钮激活可点击状态 */
+.hybrid-orbital-btn.clickable:hover {
+    transform: scale(1.02);
+    box-shadow:
+        0 0 24px rgba(0, 180, 0, 0.35),
+        0 0 48px rgba(0, 180, 0, 0.2);
+}
+
+/* 按钮隐藏状态（轨道不可见时） */
+.hybrid-orbital-btn.hidden-orbital {
+    background: rgba(100, 100, 100, 0.2);
+    border: 1px solid rgba(150, 150, 150, 0.4);
+    color: rgba(255, 255, 255, 0.5);
+    box-shadow: none;
+    animation: none;
+}
+
+.hybrid-orbital-btn.hidden-orbital:hover {
+    background: rgba(100, 100, 100, 0.3);
+    color: rgba(255, 255, 255, 0.7);
 }
