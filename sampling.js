@@ -1162,7 +1162,7 @@ window.ElectronCloud.Sampling.performRollingUpdate = function () {
     if (!state.points || state.pointCount < 100) return;
 
     // 每帧更新千分之一的点
-    const pointsToUpdate = Math.max(1, Math.floor(state.pointCount / 100)); // 1%
+    const pointsToUpdate = Math.max(1, Math.floor(state.pointCount / 1000)); // 0.1%
 
     // 获取必要的数据引用
     const positions = state.points.geometry.attributes.position.array;

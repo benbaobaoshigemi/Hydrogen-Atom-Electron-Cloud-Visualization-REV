@@ -2,7 +2,7 @@
 
 一个基于 Three.js 的交互式氢原子电子云可视化工具，采用物理精确的蒙特卡洛采样算法生成电子概率密度分布的3D点云表示。
 
-![预览图示意](https://img.shields.io/badge/Platform-Web-blue) ![License](https://img.shields.io/badge/License-MIT-green)
+[License](https://img.shields.io/badge/License-MIT-green)
 
 ---
 
@@ -34,20 +34,24 @@
 
 ## 🚀 快速开始
 
-### 方式一：本地服务器
+### 方式一：直接运行（推荐）
 
-```bash
-# 1. 启动本地服务器
-python start_server.py
+本项目已打包为 Windows 可执行文件，无需安装任何依赖即可运行：
 
-# 2. 在浏览器中访问
-http://localhost:8000
-```
+1. 双击运行目录下的 **`Hydrogen_Electron_Cloud.exe`**。
+2. 程序会自动启动本地服务器并打开默认浏览器访问应用。
+3. 关闭控制台窗口即可退出程序。
 
-### 方式二：直接运行
-双击运行打包好的 exe 程序（如提供）。
+### 方式二：源码运行
 
-> ⚠️ 直接打开 HTML 文件无法使用手势控制功能，需要通过 HTTP 服务器访问。
+如果您希望修改代码或在非 Windows 环境下运行：
+
+1. 确保已安装 Python 3.x。
+2. 在项目根目录下运行启动脚本：
+   ```bash
+   python start_server.py
+   ```
+3. 浏览器将自动打开 `http://127.0.0.1:8000`。
 
 ---
 
