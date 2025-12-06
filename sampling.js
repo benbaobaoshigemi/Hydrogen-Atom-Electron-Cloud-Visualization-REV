@@ -454,12 +454,14 @@ window.ElectronCloud.Sampling.processIndependentModePoint = function (x, y, z, r
                 sign = psi > 0 ? 1 : (psi < 0 ? -1 : 0);
             }
 
-            if (sign > 0) { // 蓝色（正相位）
-                r_color = 0; g_color = 0; b_color = 1;
-            } else if (sign < 0) { // 红色（负相位）
-                r_color = 1; g_color = 0; b_color = 0;
-            } else { // 中性白
-                r_color = 1; g_color = 1; b_color = 1;
+            // 使用全局 phaseColors 常量
+            const pc = window.ElectronCloud.constants.phaseColors;
+            if (sign > 0) {
+                r_color = pc.positive.r; g_color = pc.positive.g; b_color = pc.positive.b;
+            } else if (sign < 0) {
+                r_color = pc.negative.r; g_color = pc.negative.g; b_color = pc.negative.b;
+            } else {
+                r_color = pc.neutral.r; g_color = pc.neutral.g; b_color = pc.neutral.b;
             }
         } else {
             // 比照模式：使用固定颜色区分不同轨道
@@ -560,12 +562,14 @@ window.ElectronCloud.Sampling.processNormalModePoint = function (x, y, z, r, the
         }
 
         let r_color, g_color, b_color;
-        if (sign > 0) { // 蓝色（正相位）
-            r_color = 0; g_color = 0; b_color = 1;
-        } else if (sign < 0) { // 红色（负相位）
-            r_color = 1; g_color = 0; b_color = 0;
-        } else { // 中性白
-            r_color = 1; g_color = 1; b_color = 1;
+        // 使用全局 phaseColors 常量
+        const pc = window.ElectronCloud.constants.phaseColors;
+        if (sign > 0) {
+            r_color = pc.positive.r; g_color = pc.positive.g; b_color = pc.positive.b;
+        } else if (sign < 0) {
+            r_color = pc.negative.r; g_color = pc.negative.g; b_color = pc.negative.b;
+        } else {
+            r_color = pc.neutral.r; g_color = pc.neutral.g; b_color = pc.neutral.b;
         }
 
         colors[i3] = r_color;
@@ -717,12 +721,14 @@ window.ElectronCloud.Sampling.processImportanceSamplingPoint = function (
             sign = psi > 0 ? 1 : (psi < 0 ? -1 : 0);
         }
 
+        // 使用全局 phaseColors 常量
+        const pc = window.ElectronCloud.constants.phaseColors;
         if (sign > 0) {
-            r_color = 0; g_color = 0; b_color = 1; // 蓝色（正相位）
+            r_color = pc.positive.r; g_color = pc.positive.g; b_color = pc.positive.b;
         } else if (sign < 0) {
-            r_color = 1; g_color = 0; b_color = 0; // 红色（负相位）
+            r_color = pc.negative.r; g_color = pc.negative.g; b_color = pc.negative.b;
         } else {
-            r_color = 1; g_color = 1; b_color = 1;
+            r_color = pc.neutral.r; g_color = pc.neutral.g; b_color = pc.neutral.b;
         }
     }
 
@@ -922,12 +928,14 @@ function addHybridPoint(result, paramsList, positions, colors) {
         // 使用已计算的波函数值确定相位
         const psi = result.psi;
 
+        // 使用全局 phaseColors 常量
+        const pc = window.ElectronCloud.constants.phaseColors;
         if (psi > 0) {
-            r_color = 0; g_color = 0; b_color = 1; // 正相位：蓝色
+            r_color = pc.positive.r; g_color = pc.positive.g; b_color = pc.positive.b;
         } else if (psi < 0) {
-            r_color = 1; g_color = 0; b_color = 0; // 负相位：红色
+            r_color = pc.negative.r; g_color = pc.negative.g; b_color = pc.negative.b;
         } else {
-            r_color = 1; g_color = 1; b_color = 1; // 节面：白色
+            r_color = pc.neutral.r; g_color = pc.neutral.g; b_color = pc.neutral.b;
         }
     } else {
         // 默认白色
@@ -1076,15 +1084,17 @@ function addHybridPointAll(result, paramsList, positions, colors) {
     if (phaseOn) {
         // 相位模式：根据波函数符号着色
         const psi = result.psi;
+        // 使用全局 phaseColors 常量
+        const pc = window.ElectronCloud.constants.phaseColors;
         if (psi > 0) {
-            r_color = 0; g_color = 0; b_color = 1; // 正相位：蓝色
+            r_color = pc.positive.r; g_color = pc.positive.g; b_color = pc.positive.b;
         } else if (psi < 0) {
-            r_color = 1; g_color = 0; b_color = 0; // 负相位：红色
+            r_color = pc.negative.r; g_color = pc.negative.g; b_color = pc.negative.b;
         } else {
-            r_color = 1; g_color = 1; b_color = 1;
+            r_color = pc.neutral.r; g_color = pc.neutral.g; b_color = pc.neutral.b;
         }
     } else {
-        // 默认白色（可以考虑未来根据 hybridOrbitalIndex 分配不同颜色）
+        // 默认白色
         r_color = 1; g_color = 1; b_color = 1;
     }
 
@@ -1379,10 +1389,15 @@ window.ElectronCloud.Sampling.performRollingUpdate = function () {
                 }
             }
 
-            // 【修正】用户反馈相位反转，因此这里反转颜色逻辑
-            if (sign > 0) { r_color = 1; g_color = 0; b_color = 0; } // 改为红色
-            else if (sign < 0) { r_color = 0; g_color = 0; b_color = 1; } // 改为蓝色
-            else { r_color = 1; g_color = 1; b_color = 1; }
+            // 使用全局 phaseColors 常量，与所有采样函数保持一致
+            const pc = constants.phaseColors;
+            if (sign > 0) {
+                r_color = pc.positive.r; g_color = pc.positive.g; b_color = pc.positive.b;
+            } else if (sign < 0) {
+                r_color = pc.negative.r; g_color = pc.negative.g; b_color = pc.negative.b;
+            } else {
+                r_color = pc.neutral.r; g_color = pc.neutral.g; b_color = pc.neutral.b;
+            }
         }
 
         // 【关键修复】可见性检查

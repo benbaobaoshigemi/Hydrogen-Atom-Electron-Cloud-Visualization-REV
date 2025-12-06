@@ -74,6 +74,20 @@ window.ElectronCloud.constants = {
         { name: 'blue', value: [0.2, 0.2, 1] }
     ],
 
+    // 相位颜色（用于波函数正负瓣的可视化）
+    // 统一定义，避免各处硬编码导致不一致
+    phaseColors: {
+        // 点云相位颜色
+        positive: { r: 0, g: 0, b: 1 },      // 正相位：蓝色
+        negative: { r: 1, g: 0, b: 0 },      // 负相位：红色
+        neutral: { r: 1, g: 1, b: 1 },       // 中性：白色
+        // 等值面轮廓相位颜色（更柔和的色调）
+        contourPositive: { r: 0.0, g: 0.75, b: 1.0 },  // 冰蓝
+        contourNegative: { r: 1.0, g: 0.27, b: 0.0 },  // 橙色
+        // 默认等值面颜色（非相位模式）
+        contourDefault: { r: 0.2, g: 1.0, b: 0.5 }     // 绿色
+    },
+
     // 轨道键值到显示名称的映射（统一定义，避免重复）
     orbitalDisplayNames: {
         '1s': '1s',

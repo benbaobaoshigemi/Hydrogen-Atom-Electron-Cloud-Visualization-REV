@@ -101,17 +101,10 @@ function realYlm_value(l, m, type, theta, phi) {
     const mm = Math.abs(m);
     const y = Ylm_complex(l, mm, theta, phi);
 
-    // 【关键修复】与 physics.js 同步：对 l=1 (p轨道) 应用相位修正
-    // 确保正瓣指向坐标轴正方向
-    let signFactor = 1.0;
-    if (l === 1) {
-        signFactor = -1.0;
-    }
-
     if (type === 'c') {
-        return Math.SQRT2 * y.re * signFactor;
+        return Math.SQRT2 * y.re;
     } else {
-        return Math.SQRT2 * y.im * signFactor;
+        return Math.SQRT2 * y.im;
     }
 }
 
@@ -959,10 +952,11 @@ function performSampling(config) {
                             psi += R * Y;
                         }
                     }
+                    // 相位颜色：与主线程保持一致（正=蓝、负=红）
                     if (psi > 0) {
-                        r_color = 1; g_color = 0.2; b_color = 0.2;
+                        r_color = 0; g_color = 0; b_color = 1;
                     } else if (psi < 0) {
-                        r_color = 0.2; g_color = 0.2; b_color = 1;
+                        r_color = 1; g_color = 0; b_color = 0;
                     } else {
                         r_color = 1; g_color = 1; b_color = 1;
                     }
@@ -1203,10 +1197,11 @@ function performHybridSampling(paramsList, samplingBoundary, maxAttempts, target
         // 计算颜色
         let r_color, g_color, b_color;
         if (phaseOn) {
+            // 相位颜色：与主线程保持一致（正=蓝、负=红）
             if (result.psi > 0) {
-                r_color = 1; g_color = 0.2; b_color = 0.2;
+                r_color = 0; g_color = 0; b_color = 1;
             } else if (result.psi < 0) {
-                r_color = 0.2; g_color = 0.2; b_color = 1;
+                r_color = 1; g_color = 0; b_color = 0;
             } else {
                 r_color = 1; g_color = 1; b_color = 1;
             }

@@ -1784,6 +1784,16 @@ window.ElectronCloud.UI.onMultiselectToggle = function () {
     }
 
     if (isMultiselect) {
+        // 【修复】明确恢复相位开关的可用状态（多选模式支持相位显示）
+        const phaseToggle = document.getElementById('phase-toggle');
+        const phaseBox = document.getElementById('phase-box');
+        if (phaseToggle) {
+            phaseToggle.disabled = false;
+        }
+        if (phaseBox) {
+            phaseBox.classList.remove('disabled');
+        }
+
         if (controlPanel) controlPanel.classList.add('multiselect-active');
         if (multiselectControls) multiselectControls.classList.add('visible');
         if (label) label.style.display = 'none';

@@ -94,25 +94,10 @@
     const mm = Math.abs(m);
     const y = Ylm_complex(l, mm, theta, phi);
 
-    // For Chemistry convention, we want specific signs.
-    // Standard definition typically includes (-1)^m.
-    // For l=1, m=1: Y_1^1 ~ -sin(theta)e^iphi. Re ~ -sin(theta)cos(phi) ~ -x.
-    // But we want +x. So we need to flip sign if the base function includes CS phase.
-    // The previous implementation of Ylm_complex seemed to include sign.
-    // Let's explicitly force the sign for known orbitals or general odd m if needed.
-
-    // Check l=1 (p-orbitals)
-    let signFactor = 1.0;
-    if (l === 1) {
-      // We want positive lobes.
-      // Y_1^1 (std) has - sign. We multiply by -1 to get Chem convention.
-      signFactor = -1.0;
-    }
-
     if (type === 'c') {
-      return Math.SQRT2 * y.re * signFactor;
+      return Math.SQRT2 * y.re;
     } else {
-      return Math.SQRT2 * y.im * signFactor;
+      return Math.SQRT2 * y.im;
     }
   }
 

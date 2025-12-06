@@ -876,10 +876,11 @@ window.ElectronCloud.Visualization.updatePointColors = function () {
         coeffMatrix = Hydrogen.getHybridCoefficients(orbitalParams.length);
     }
 
-    // 颜色定义（注意：此处颜色与采样时相反，以保证后开相位显示一致性）
-    const colorPos = { r: 1.0, g: 0.0, b: 0.0 }; // psi>=0 用红
-    const colorNeg = { r: 0.0, g: 0.0, b: 1.0 }; // psi<0 用蓝
-    const colorWhite = { r: 1.0, g: 1.0, b: 1.0 };
+    // 使用全局 phaseColors 常量，与所有采样函数保持一致
+    const pc = window.ElectronCloud.constants.phaseColors;
+    const colorPos = { r: pc.positive.r, g: pc.positive.g, b: pc.positive.b }; // 正相位：蓝色
+    const colorNeg = { r: pc.negative.r, g: pc.negative.g, b: pc.negative.b }; // 负相位：红色
+    const colorWhite = { r: pc.neutral.r, g: pc.neutral.g, b: pc.neutral.b };
 
     // 遍历所有点
     for (let i = 0; i < pointCount; i++) {

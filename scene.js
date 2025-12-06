@@ -1029,7 +1029,8 @@ window.ElectronCloud.Scene.animate = function () {
                     // 移除该点
                     points.splice(i, 1);
                 } else {
-                    // 计算高亮颜色：从白色(1,1,1)过渡到原始颜色
+                    // 计算高亮效果：基于点颜色的辉光，从最亮过渡到原始亮度
+                    // t=0 时亮度最高（辉光效果），t=1 时恢复原始颜色
                     const t = age / duration; // 0 -> 1
 
                     const i3 = hp.index * 3;
@@ -1063,11 +1064,15 @@ window.ElectronCloud.Scene.animate = function () {
                     const baseG = state.baseColors ? state.baseColors[i3 + 1] : colorArray[i3 + 1];
                     const baseB = state.baseColors ? state.baseColors[i3 + 2] : colorArray[i3 + 2];
 
-                    // 混合白色和底色 (t=0 -> white, t=1 -> base)
-                    // 高亮时不考虑透明度，直接给最亮
-                    colorArray[i3] = 1.0 * (1 - t) + baseR * t;
-                    colorArray[i3 + 1] = 1.0 * (1 - t) + baseG * t;
-                    colorArray[i3 + 2] = 1.0 * (1 - t) + baseB * t;
+                    // 【修改】基于点颜色的高亮辉光效果
+                    // 高亮时用高亮度系数放大颜色（实现辉光），然后过渡回原始亮度
+                    // 红点发红光、蓝点发蓝光、白点发白光
+                    const maxBrightness = 2.5;  // 最高亮度倍数（辉光效果）
+                    const brightness = maxBrightness * (1 - t) + 1.0 * t;  // 从 2.5 过渡到 1.0
+
+                    colorArray[i3] = Math.min(1.0, baseR * brightness);
+                    colorArray[i3 + 1] = Math.min(1.0, baseG * brightness);
+                    colorArray[i3 + 2] = Math.min(1.0, baseB * brightness);
 
                     hasActiveHighlights = true;
                 }
