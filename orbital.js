@@ -508,19 +508,20 @@ window.ElectronCloud.Orbital.initTheoryData = function () {
 
         // 【关键修复】检测杂化模式，使用正确的物理公式
         const isHybridMode = state.isHybridMode === true;
+        const atomType = state.currentAtom || 'H'; // 支持非氢原子
 
         for (let i = 0; i < radialBins; i++) {
             radialCenters[i] = 0.5 * (radialEdges[i] + radialEdges[i + 1]);
 
             if (isHybridMode) {
                 // 【杂化模式】使用专门的杂化径向PDF：P(r) = r² × Σ|cᵢ|²|Rᵢ(r)|²
-                radialTheoryValues[i] = Hydrogen.hybridRadialPDF(paramsList, radialCenters[i]);
+                radialTheoryValues[i] = Hydrogen.hybridRadialPDF(paramsList, radialCenters[i], 1, 1, atomType);
                 // 波函数：取加权和
                 let sumWave = 0;
                 const defaultCoeff = 1.0 / Math.sqrt(paramsList.length);
                 for (const params of paramsList) {
                     const coeff = params.coefficient !== undefined ? params.coefficient : defaultCoeff;
-                    sumWave += coeff * Math.abs(Hydrogen.radialR(params.n, params.l, radialCenters[i]));
+                    sumWave += coeff * Math.abs(Hydrogen.radialR(params.n, params.l, radialCenters[i], 1, 1, atomType));
                 }
                 radialWave[i] = sumWave;
             } else {
@@ -528,8 +529,8 @@ window.ElectronCloud.Orbital.initTheoryData = function () {
                 let sumPDF = 0;
                 let sumWave = 0;
                 for (const params of paramsList) {
-                    sumPDF += Hydrogen.radialPDF(params.n, params.l, radialCenters[i]);
-                    sumWave += Math.abs(Hydrogen.radialR(params.n, params.l, radialCenters[i]));
+                    sumPDF += Hydrogen.radialPDF(params.n, params.l, radialCenters[i], 1, 1, atomType);
+                    sumWave += Math.abs(Hydrogen.radialR(params.n, params.l, radialCenters[i], 1, 1, atomType));
                 }
                 radialTheoryValues[i] = sumPDF / paramsList.length;
                 radialWave[i] = sumWave / paramsList.length;
@@ -615,18 +616,19 @@ window.ElectronCloud.Orbital.updateBackgroundChartData = function () {
 
             // 【关键修复】检测杂化模式，使用正确的物理公式
             const isHybridMode = state.isHybridMode === true;
+            const atomType = state.currentAtom || 'H';
             const values = new Array(adaptiveBins);
             const wave = new Array(adaptiveBins);
 
             for (let i = 0; i < adaptiveBins; i++) {
                 if (isHybridMode) {
                     // 【杂化模式】使用专门的杂化径向PDF
-                    values[i] = Hydrogen.hybridRadialPDF(paramsList, centers[i]);
+                    values[i] = Hydrogen.hybridRadialPDF(paramsList, centers[i], 1, 1, atomType);
                     let sumWave = 0;
                     const defaultCoeff = 1.0 / Math.sqrt(paramsList.length);
                     for (const params of paramsList) {
                         const coeff = params.coefficient !== undefined ? params.coefficient : defaultCoeff;
-                        sumWave += coeff * Math.abs(Hydrogen.radialR(params.n, params.l, centers[i]));
+                        sumWave += coeff * Math.abs(Hydrogen.radialR(params.n, params.l, centers[i], 1, 1, atomType));
                     }
                     wave[i] = sumWave;
                 } else {
@@ -634,8 +636,8 @@ window.ElectronCloud.Orbital.updateBackgroundChartData = function () {
                     let sumPDF = 0;
                     let sumWave = 0;
                     for (const params of paramsList) {
-                        sumPDF += Hydrogen.radialPDF(params.n, params.l, centers[i]);
-                        sumWave += Math.abs(Hydrogen.radialR(params.n, params.l, centers[i]));
+                        sumPDF += Hydrogen.radialPDF(params.n, params.l, centers[i], 1, 1, atomType);
+                        sumWave += Math.abs(Hydrogen.radialR(params.n, params.l, centers[i], 1, 1, atomType));
                     }
                     values[i] = sumPDF / paramsList.length;
                     wave[i] = sumWave / paramsList.length;
@@ -751,18 +753,19 @@ window.ElectronCloud.Orbital.drawProbabilityChart = function (final = true) {
 
         // 【关键修复】检测杂化模式，使用正确的物理公式
         const isHybridMode = state.isHybridMode === true;
+        const atomType = state.currentAtom || 'H';
         const values = new Array(adaptiveBins);
         const wave = new Array(adaptiveBins);
 
         for (let i = 0; i < adaptiveBins; i++) {
             if (isHybridMode) {
                 // 【杂化模式】使用专门的杂化径向PDF
-                values[i] = Hydrogen.hybridRadialPDF(paramsList, centers[i]);
+                values[i] = Hydrogen.hybridRadialPDF(paramsList, centers[i], 1, 1, atomType);
                 let sumWave = 0;
                 const defaultCoeff = 1.0 / Math.sqrt(paramsList.length);
                 for (const params of paramsList) {
                     const coeff = params.coefficient !== undefined ? params.coefficient : defaultCoeff;
-                    sumWave += coeff * Math.abs(Hydrogen.radialR(params.n, params.l, centers[i]));
+                    sumWave += coeff * Math.abs(Hydrogen.radialR(params.n, params.l, centers[i], 1, 1, atomType));
                 }
                 wave[i] = sumWave;
             } else {
@@ -770,8 +773,8 @@ window.ElectronCloud.Orbital.drawProbabilityChart = function (final = true) {
                 let sumPDF = 0;
                 let sumWave = 0;
                 for (const params of paramsList) {
-                    sumPDF += Hydrogen.radialPDF(params.n, params.l, centers[i]);
-                    sumWave += Math.abs(Hydrogen.radialR(params.n, params.l, centers[i]));
+                    sumPDF += Hydrogen.radialPDF(params.n, params.l, centers[i], 1, 1, atomType);
+                    sumWave += Math.abs(Hydrogen.radialR(params.n, params.l, centers[i], 1, 1, atomType));
                 }
                 values[i] = sumPDF / paramsList.length;
                 wave[i] = sumWave / paramsList.length;

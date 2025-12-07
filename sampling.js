@@ -240,7 +240,8 @@ window.ElectronCloud.Sampling.submitSamplingTask = function () {
                 isMultiselectMode: !isHybridMode && isMultiselectMode,
                 isHybridMode: isHybridMode, // 【新增】传递杂化模式标志
                 phaseOn: phaseOn,
-                compareColors: compareColors
+                compareColors: compareColors,
+                atomType: state.currentAtom || 'H' // 【关键修复】传递当前原子类型
             }
         };
 
@@ -427,7 +428,9 @@ window.ElectronCloud.Sampling.processIndependentModePoint = function (x, y, z, r
     const orbitalIndex = state.roundRobinIndex % paramsList.length;
     state.roundRobinIndex++;
     const p = paramsList[orbitalIndex];
-    const density = Hydrogen.density3D_real(p.angKey, p.n, p.l, r, theta, phi);
+    // 获取当前原子类型
+    const currentAtom = state.currentAtom || 'H';
+    const density = Hydrogen.density3D_real(p.angKey, p.n, p.l, r, theta, phi, 1, 1, currentAtom);
 
     // 【关键】为每个轨道独立计算scaleFactor
     // 确保每个轨道按照自己的概率密度分布采样，而不是混在一起
@@ -448,7 +451,7 @@ window.ElectronCloud.Sampling.processIndependentModePoint = function (x, y, z, r
             let sign = 0;
             if (phaseOn) {
                 // 只计算当前选中轨道的波函数，不叠加其他轨道
-                const R = Hydrogen.radialR(p.n, p.l, r);
+                const R = Hydrogen.radialR(p.n, p.l, r, 1, 1, currentAtom);
                 const Y = Hydrogen.realYlm_value(p.angKey.l, p.angKey.m, p.angKey.t, theta, phi);
                 const psi = R * Y;
                 sign = psi > 0 ? 1 : (psi < 0 ? -1 : 0);
@@ -531,9 +534,11 @@ window.ElectronCloud.Sampling.processNormalModePoint = function (x, y, z, r, the
 
     // 计算所有轨道的概率密度叠加，同时找出最小n值
     let minN = paramsList[0].n;
+    // 获取当前原子类型
+    const currentAtom = state.currentAtom || 'H';
     for (let i = 0; i < paramsList.length; i++) {
         const p = paramsList[i];
-        const density = Hydrogen.density3D_real(p.angKey, p.n, p.l, r, theta, phi);
+        const density = Hydrogen.density3D_real(p.angKey, p.n, p.l, r, theta, phi, 1, 1, currentAtom);
         probability += density;
         if (p.n < minN) minN = p.n;
     }
@@ -554,7 +559,7 @@ window.ElectronCloud.Sampling.processNormalModePoint = function (x, y, z, r, the
         if (phaseOn) {
             let psi = 0;
             for (const p of paramsList) {
-                const R = Hydrogen.radialR(p.n, p.l, r);
+                const R = Hydrogen.radialR(p.n, p.l, r, 1, 1, currentAtom);
                 const Y = Hydrogen.realYlm_value(p.angKey.l, p.angKey.m, p.angKey.t, theta, phi);
                 psi += R * Y;
             }
@@ -848,7 +853,9 @@ window.ElectronCloud.Sampling.processHybridModePoint = function (paramsList, pos
     }));
 
     // 采样
-    const result = Hydrogen.hybridPreciseSample(paramsWithCoeffs, state.samplingBoundary);
+    // 获取当前原子类型
+    const currentAtom = state.currentAtom || 'H';
+    const result = Hydrogen.hybridPreciseSample(paramsWithCoeffs, state.samplingBoundary, currentAtom);
 
     if (result && result.accepted) {
         // 采样成功，记录这个点属于哪条杂化轨道
@@ -879,7 +886,8 @@ function processSingleHybridPoint(paramsList, hybridIndex, positions, colors) {
 
     // 3. 使用精确采样
     // 这比基础拒绝采样快得多，且物理上更准确
-    const result = Hydrogen.hybridPreciseSample(paramsWithCoeffs, state.samplingBoundary);
+    const currentAtom = state.currentAtom || 'H';
+    const result = Hydrogen.hybridPreciseSample(paramsWithCoeffs, state.samplingBoundary, currentAtom);
 
     if (result && result.accepted) {
         return addHybridPoint(result, paramsList, positions, colors);
@@ -900,7 +908,8 @@ function estimateSingleHybridMaxDensity(paramsList, hybridIndex, rMax, numSample
         const theta = Math.acos(cosTheta);
         const phi = 2 * Math.PI * Math.random();
 
-        const density = Hydrogen.singleHybridDensity3D(paramsList, hybridIndex, r, theta, phi);
+        const currentAtom = window.ElectronCloud.state.currentAtom || 'H';
+        const density = Hydrogen.singleHybridDensity3D(paramsList, hybridIndex, r, theta, phi, 1, 1, currentAtom);
         if (density > maxDensity) {
             maxDensity = density;
         }
@@ -1000,7 +1009,8 @@ function processHybridPointFallback(paramsList, positions, colors) {
     const phi = Math.atan2(y, x);
 
     // 【关键修复】使用所有杂化轨道的总概率密度
-    const density = Hydrogen.allHybridOrbitalsDensity3D(paramsList, r, theta, phi);
+    const currentAtom = state.currentAtom || 'H';
+    const density = Hydrogen.allHybridOrbitalsDensity3D(paramsList, r, theta, phi, 1, 1, currentAtom);
 
     // 拒绝采样：接受概率 = density / maxDensity
     const acceptProb = density / hybridMaxDensityCache;
@@ -1023,11 +1033,11 @@ function processHybridPointFallback(paramsList, positions, colors) {
     let dominantPsi = 0;
 
     for (let i = 0; i < numOrbitals; i++) {
-        const orbitalDensity = Hydrogen.singleHybridDensity3D(paramsList, i, r, theta, phi);
+        const orbitalDensity = Hydrogen.singleHybridDensity3D(paramsList, i, r, theta, phi, 1, 1, currentAtom);
         if (orbitalDensity > maxOrbitalDensity) {
             maxOrbitalDensity = orbitalDensity;
             dominantOrbitalIndex = i;
-            dominantPsi = Hydrogen.singleHybridWavefunction(paramsList, i, r, theta, phi);
+            dominantPsi = Hydrogen.singleHybridWavefunction(paramsList, i, r, theta, phi, 1, 1, currentAtom);
         }
     }
 
@@ -1056,7 +1066,8 @@ function estimateAllHybridsMaxDensity(paramsList, rMax, numSamples = 2000) {
         const theta = Math.acos(cosTheta);
         const phi = 2 * Math.PI * Math.random();
 
-        const density = Hydrogen.allHybridOrbitalsDensity3D(paramsList, r, theta, phi);
+        const currentAtom = window.ElectronCloud.state.currentAtom || 'H';
+        const density = Hydrogen.allHybridOrbitalsDensity3D(paramsList, r, theta, phi, 1, 1, currentAtom);
         if (density > maxDensity) {
             maxDensity = density;
         }
@@ -1180,6 +1191,9 @@ window.ElectronCloud.Sampling.performRollingUpdate = function () {
 
     const now = performance.now();
 
+    // 获取当前原子类型
+    const currentAtom = state.currentAtom || 'H';
+
     // 杂化模式预处理
     let hybridCoeffs = null;
     let hybridNumOrbitals = 0;
@@ -1280,7 +1294,7 @@ window.ElectronCloud.Sampling.performRollingUpdate = function () {
                 coefficient: currentCoeffs[i]
             }));
 
-            const result = Hydrogen.hybridPreciseSample(paramsWithCoeffs, state.samplingBoundary);
+            const result = Hydrogen.hybridPreciseSample(paramsWithCoeffs, state.samplingBoundary, currentAtom);
             if (!result || !result.accepted) continue;
             ({ x, y, z, r, theta, phi } = result);
             orbitalKey = state.currentOrbital;
@@ -1308,7 +1322,7 @@ window.ElectronCloud.Sampling.performRollingUpdate = function () {
             const p = paramsList[orbitalIndex];
             orbitalKey = state.currentOrbitals[orbitalIndex];
 
-            const result = Hydrogen.importanceSample(p.n, p.l, p.angKey, state.samplingBoundary);
+            const result = Hydrogen.importanceSample(p.n, p.l, p.angKey, state.samplingBoundary, currentAtom);
             if (!result || !result.accepted) continue;
             ({ x, y, z, r, theta, phi } = result);
         }
@@ -1367,21 +1381,21 @@ window.ElectronCloud.Sampling.performRollingUpdate = function () {
                     for (let i = 0; i < paramsList.length; i++) {
                         const p = paramsList[i];
                         const coeff = currentCoeffs[i];
-                        const R = Hydrogen.radialR(p.n, p.l, r);
+                        const R = Hydrogen.radialR(p.n, p.l, r, 1, 1, currentAtom);
                         const Y = Hydrogen.realYlm_value(p.angKey.l, p.angKey.m, p.angKey.t, theta, phi);
                         psi += coeff * R * Y;
                     }
                     sign = psi > 0 ? 1 : -1;
                 } else if (isMultiselectMode) {
                     const p = paramsList[orbitalIndex];
-                    const R = Hydrogen.radialR(p.n, p.l, r);
+                    const R = Hydrogen.radialR(p.n, p.l, r, 1, 1, currentAtom);
                     const Y = Hydrogen.realYlm_value(p.angKey.l, p.angKey.m, p.angKey.t, theta, phi);
                     const psi = R * Y;
                     sign = psi > 0 ? 1 : -1;
                 } else {
                     let psi = 0;
                     for (const p of paramsList) {
-                        const R = Hydrogen.radialR(p.n, p.l, r);
+                        const R = Hydrogen.radialR(p.n, p.l, r, 1, 1, currentAtom);
                         const Y = Hydrogen.realYlm_value(p.angKey.l, p.angKey.m, p.angKey.t, theta, phi);
                         psi += R * Y;
                     }

@@ -34,6 +34,9 @@ window.ElectronCloud.UI.init = function () {
         window.ElectronCloud.UI.initCustomOrbitalList();
     }
 
+    // 动态填充原子列表（必须在 initCustomSelects 之前调用，否则自定义UI会包含旧选项）
+    populateAtomList();
+
     // 初始化通用自定义下拉框
     if (window.ElectronCloud.UI.initCustomSelects) {
         window.ElectronCloud.UI.initCustomSelects();
@@ -788,14 +791,58 @@ window.ElectronCloud.UI.init = function () {
 
             // 更新原子信息显示
             const atomInfo = document.getElementById('atom-info');
-            if (atomInfo && window.SlaterBasis && window.SlaterBasis[atomSymbol]) {
-                const atom = window.SlaterBasis[atomSymbol];
-                atomInfo.textContent = `基态: ${atom.groundState}`;
-            }
+            let groundState = '1s¹'; // 默认H
 
-            // TODO: 更新轨道选择器为该原子可用的轨道
+            if (atomSymbol === 'H') {
+                groundState = '1s¹';
+            } else if (window.SlaterBasis && window.SlaterBasis[atomSymbol]) {
+                const atom = window.SlaterBasis[atomSymbol];
+                groundState = atom.groundState || '';
+            }
+            if (atomInfo) atomInfo.textContent = `基态: ${groundState}`;
+
+            // 更新轨道选择器为该原子可用的轨道
+            if (window.ElectronCloud.UI.updateOrbitalSelector) {
+                window.ElectronCloud.UI.updateOrbitalSelector(atomSymbol);
+            }
             console.log('选择原子:', atomSymbol);
         });
+    }
+
+    // 动态填充原子选择列表
+    function populateAtomList() {
+        const select = document.getElementById('atom-select');
+        if (!select || !window.SlaterBasis) return;
+
+        // 元素中文名称映射 (1-54)
+        const cnNames = {
+            'H': '氢', 'He': '氦', 'Li': '锂', 'Be': '铍', 'B': '硼', 'C': '碳', 'N': '氮', 'O': '氧', 'F': '氟', 'Ne': '氖',
+            'Na': '钠', 'Mg': '镁', 'Al': '铝', 'Si': '硅', 'P': '磷', 'S': '硫', 'Cl': '氯', 'Ar': '氩',
+            'K': '钾', 'Ca': '钙', 'Sc': '钪', 'Ti': '钛', 'V': '钒', 'Cr': '铬', 'Mn': '锰', 'Fe': '铁', 'Co': '钴', 'Ni': '镍', 'Cu': '铜', 'Zn': '锌',
+            'Ga': '镓', 'Ge': '锗', 'As': '砷', 'Se': '硒', 'Br': '溴', 'Kr': '氪',
+            'Rb': '铷', 'Sr': '锶', 'Y': '钇', 'Zr': '锆', 'Nb': '铌', 'Mo': '钼', 'Tc': '锝', 'Ru': '钌', 'Rh': '铑', 'Pd': '钯', 'Ag': '银', 'Cd': '镉',
+            'In': '铟', 'Sn': '锡', 'Sb': '锑', 'Te': '碲', 'I': '碘', 'Xe': '氙'
+        };
+
+        // 清空现有选项
+        select.innerHTML = '';
+
+        // 获取并排序原子列表
+        const atoms = Object.entries(window.SlaterBasis)
+            .filter(([key, val]) => val.Z) // 过滤元数据
+            .sort((a, b) => a[1].Z - b[1].Z);
+
+        atoms.forEach(([symbol, data]) => {
+            const option = document.createElement('option');
+            option.value = symbol;
+            const cnName = cnNames[symbol] || data.name;
+            option.textContent = `${symbol} - ${cnName}`;
+            if (symbol === 'H') option.selected = true;
+            select.appendChild(option);
+        });
+
+        // 触发一次更新以确保UI一致
+        // select.dispatchEvent(new Event('change')); // 不自动触发，保持默认 H
     }
 
     // 更新原子选择器禁用状态的函数
@@ -2757,6 +2804,12 @@ window.ElectronCloud.UI.initCustomOrbitalList = function () {
     // 初始化视觉状态
     window.ElectronCloud.UI.updateCustomListVisuals();
 
+    // 初始化时根据当前原子过滤
+    const currentAtom = window.ElectronCloud.state.currentAtom || 'H';
+    if (window.ElectronCloud.UI.updateOrbitalSelector) {
+        window.ElectronCloud.UI.updateOrbitalSelector(currentAtom);
+    }
+
     // 监听原生 select 变化
     select.addEventListener('change', () => {
         window.ElectronCloud.UI.updateCustomListVisuals();
@@ -3419,4 +3472,63 @@ window.ElectronCloud.UI.onHybridContourToggle = function (e) {
             }
         }
     }
+};
+
+/**
+ * 根据原子类型更新轨道选择列表的可用性
+ * @param {string} atomSymbol - 原子符号 (H, He, Li, ...)
+ */
+window.ElectronCloud.UI.updateOrbitalSelector = function (atomSymbol) {
+    const container = document.getElementById('custom-orbital-list');
+    if (!container) return;
+
+    const atomData = window.SlaterBasis ? window.SlaterBasis[atomSymbol] : null;
+    const items = container.children;
+    const select = document.getElementById('orbital-select');
+
+    // 遍历所有选项
+    Array.from(items).forEach((item, index) => {
+        const val = item.dataset.value; // e.g. "2px"
+        // 提取主壳层键 (e.g. "2px" -> "2p")
+        const match = val.match(/^(\d+[spdfg])/);
+        const key = match ? match[1] : val;
+
+        let enabled = true;
+
+        if (atomSymbol === 'H') {
+            // 氢原子：所有轨道可用（理论上无穷多，这里指列表中的所有）
+            enabled = true;
+        } else {
+            // 其他原子：仅显示 SlaterBasis 中定义的轨道
+            // 通常仅包含占据轨道和低激发态
+            if (atomData && atomData.orbitals && atomData.orbitals[key]) {
+                enabled = true;
+            } else {
+                enabled = false;
+            }
+        }
+
+        if (enabled) {
+            item.classList.remove('disabled');
+            item.style.opacity = '1';
+            item.style.pointerEvents = 'auto';
+            item.title = '';
+        } else {
+            item.classList.add('disabled');
+            item.style.opacity = '0.3';
+            item.style.pointerEvents = 'none';
+            item.title = `该原子(${atomSymbol})暂无此轨道(${key})数据`;
+
+            // 如果该不可用项被选中，则取消选中
+            const option = select.options[index];
+            if (option.selected) {
+                option.selected = false;
+                // 触发取消选中的视觉更新
+                item.classList.remove('active');
+                item.classList.remove('compare-a');
+                item.classList.remove('compare-b');
+                item.classList.remove('compare-c');
+            }
+        }
+    });
 };

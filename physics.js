@@ -101,8 +101,45 @@
     }
   }
 
+  // Helper: Convert n, l to orbital key (e.g., 2,1 -> '2p')
+  function getOrbitalKey(n, l) {
+    const subshells = ['s', 'p', 'd', 'f', 'g'];
+    const letter = subshells[l] || '';
+    return n + letter;
+  }
+
+  // Slater Type Orbital Radial Function
+  function slaterRadialR(basis, r) {
+    if (!basis) return 0;
+    let sum = 0;
+    for (let i = 0; i < basis.length; i++) {
+      const { nStar, zeta, coeff } = basis[i];
+      // Normalization constant N = (2zeta)^(n*+0.5) / sqrt((2n*)!)
+      const nFact2 = factorial(2 * nStar);
+      const norm = Math.pow(2 * zeta, nStar + 0.5) / Math.sqrt(nFact2);
+      // Radial part: r^(n*-1) * e^(-zeta*r)
+      const val = coeff * norm * Math.pow(r, nStar - 1) * Math.exp(-zeta * r);
+      sum += val;
+    }
+    return sum;
+  }
+
   // Normalized radial R_nl(r) with ∫|R|^2 r^2 dr = 1
-  function radialR(n, l, r, Z = 1, a0 = A0) {
+  // Modified to support STO strategy for non-Hydrogen atoms
+  function radialR(n, l, r, Z = 1, a0 = A0, atomType = 'H') {
+    // Strategy A: Slater Type Orbitals (STO)
+    if (atomType && atomType !== 'H' && window.SlaterBasis) {
+      const orbitalKey = getOrbitalKey(n, l);
+      const atomData = window.SlaterBasis[atomType];
+      if (atomData && atomData.orbitals && atomData.orbitals[orbitalKey]) {
+        return slaterRadialR(atomData.orbitals[orbitalKey], r);
+      }
+      // If orbital not defined for this atom (e.g. C-3s), fall back to Hydrogen-like or 0?
+      // Fallback to Hydrogen-like with Z_eff might be better, or just pure Hydrogen Z=1 for now.
+      // Let's fall back to Hydrogen Z=1 to avoid breaking.
+    }
+
+    // Strategy B: Hydrogen analytical solution (Default)
     if (n <= 0 || l < 0 || l >= n) return 0;
     const rho = (2 * Z * r) / (n * a0);
     const k = n - l - 1;
@@ -112,8 +149,8 @@
     return pref * Math.exp(-rho / 2) * Math.pow(rho, l) * poly;
   }
 
-  function radialPDF(n, l, r, Z = 1, a0 = A0) {
-    const R = radialR(n, l, r, Z, a0);
+  function radialPDF(n, l, r, Z = 1, a0 = A0, atomType = 'H') {
+    const R = radialR(n, l, r, Z, a0, atomType);
     return r * r * (R * R);
   }
 
@@ -132,9 +169,10 @@
    * @param {number} r - 径向距离
    * @param {number} Z - 核电荷数（默认1）
    * @param {number} a0 - 玻尔半径（默认1）
+   * @param {string} atomType - 原子类型
    * @returns {number} - 杂化轨道的径向概率密度 P(r)
    */
-  function hybridRadialPDF(paramsList, r, Z = 1, a0 = A0) {
+  function hybridRadialPDF(paramsList, r, Z = 1, a0 = A0, atomType = 'H') {
     if (!paramsList || paramsList.length === 0) return 0;
 
     const numOrbitals = paramsList.length;
@@ -143,15 +181,15 @@
     let sum = 0;
     for (const p of paramsList) {
       const coeff = p.coefficient !== undefined ? p.coefficient : defaultCoeff;
-      const R = radialR(p.n, p.l, r, Z, a0);
+      const R = radialR(p.n, p.l, r, Z, a0, atomType);
       sum += coeff * coeff * R * R;
     }
 
     return r * r * sum;
   }
 
-  function density3D_real(angKey, n, l, r, theta, phi, Z = 1, a0 = A0) {
-    const R = radialR(n, l, r, Z, a0);
+  function density3D_real(angKey, n, l, r, theta, phi, Z = 1, a0 = A0, atomType = 'H') {
+    const R = radialR(n, l, r, Z, a0, atomType);
     let Y2 = 1 / (4 * PI);
     if (angKey && typeof angKey === 'object') {
       Y2 = realYlm_abs2(angKey.l, angKey.m, angKey.t, theta, phi);
@@ -173,9 +211,10 @@
    * @param {number} r - 径向距离
    * @param {number} theta - 极角
    * @param {number} phi - 方位角
+   * @param {string} atomType - 原子类型
    * @returns {number} - 概率密度 |Ψ_hybrid|²
    */
-  function hybridDensity3D(paramsList, r, theta, phi, Z = 1, a0 = A0) {
+  function hybridDensity3D(paramsList, r, theta, phi, Z = 1, a0 = A0, atomType = 'H') {
     if (!paramsList || paramsList.length === 0) return 0;
 
     let psiReal = 0;
@@ -183,7 +222,7 @@
 
     for (const p of paramsList) {
       const coeff = p.coefficient !== undefined ? p.coefficient : defaultCoeff;
-      const R = radialR(p.n, p.l, r, Z, a0);
+      const R = radialR(p.n, p.l, r, Z, a0, atomType);
       const Y = realYlm_value(p.angKey.l, p.angKey.m, p.angKey.t, theta, phi);
       psiReal += coeff * R * Y;
     }
@@ -204,9 +243,10 @@
    * @param {number} r - 径向距离
    * @param {number} theta - 极角
    * @param {number} phi - 方位角
+   * @param {string} atomType - 原子类型
    * @returns {number} - 所有杂化轨道的总概率密度
    */
-  function allHybridOrbitalsDensity3D(paramsList, r, theta, phi, Z = 1, a0 = A0) {
+  function allHybridOrbitalsDensity3D(paramsList, r, theta, phi, Z = 1, a0 = A0, atomType = 'H') {
     if (!paramsList || paramsList.length === 0) return 0;
 
     const numOrbitals = paramsList.length;
@@ -223,7 +263,7 @@
       for (let i = 0; i < numOrbitals; i++) {
         const p = paramsList[i];
         const coeff = coeffs[i];
-        const R = radialR(p.n, p.l, r, Z, a0);
+        const R = radialR(p.n, p.l, r, Z, a0, atomType);
         const Y = realYlm_value(p.angKey.l, p.angKey.m, p.angKey.t, theta, phi);
         psiReal += coeff * R * Y;
       }
@@ -380,9 +420,10 @@
    * @param {number} r - 径向距离
    * @param {number} theta - 极角
    * @param {number} phi - 方位角
+   * @param {string} atomType - 原子类型
    * @returns {number} - 概率密度
    */
-  function singleHybridDensity3D(paramsList, hybridIndex, r, theta, phi, Z = 1, a0 = A0) {
+  function singleHybridDensity3D(paramsList, hybridIndex, r, theta, phi, Z = 1, a0 = A0, atomType = 'H') {
     if (!paramsList || paramsList.length === 0) return 0;
 
     const numOrbitals = paramsList.length;
@@ -398,7 +439,7 @@
       const p = paramsList[i];
       const coeff = coeffs[i];
 
-      const R = radialR(p.n, p.l, r, Z, a0);
+      const R = radialR(p.n, p.l, r, Z, a0, atomType);
       const Y = realYlm_value(p.angKey.l, p.angKey.m, p.angKey.t, theta, phi);
 
       psiReal += coeff * R * Y;
@@ -410,7 +451,7 @@
   /**
    * 计算单个杂化轨道的波函数值（用于相位）
    */
-  function singleHybridWavefunction(paramsList, hybridIndex, r, theta, phi, Z = 1, a0 = A0) {
+  function singleHybridWavefunction(paramsList, hybridIndex, r, theta, phi, Z = 1, a0 = A0, atomType = 'H') {
     if (!paramsList || paramsList.length === 0) return 0;
 
     const numOrbitals = paramsList.length;
@@ -424,7 +465,7 @@
       const p = paramsList[i];
       const coeff = coeffs[i];
 
-      const R = radialR(p.n, p.l, r, Z, a0);
+      const R = radialR(p.n, p.l, r, Z, a0, atomType);
       const Y = realYlm_value(p.angKey.l, p.angKey.m, p.angKey.t, theta, phi);
 
       psiReal += coeff * R * Y;
@@ -614,10 +655,11 @@
    * @param {number} n - 主量子数
    * @param {number} l - 角量子数
    * @param {number} numPoints - CDF表的点数（越多越精确）
+   * @param {string} atomType - 原子类型
    * @returns {Object} { r: Float64Array, cdf: Float64Array, rMax: number }
    */
-  function buildRadialCDF(n, l, numPoints = 2000) {
-    const key = `${n}_${l}`;
+  function buildRadialCDF(n, l, numPoints = 2000, atomType = 'H') {
+    const key = `${n}_${l}_${atomType}`;
     if (_cdfCache[key]) {
       return _cdfCache[key];
     }
@@ -636,8 +678,8 @@
 
     for (let i = 1; i <= numPoints; i++) {
       r[i] = i * dr;
-      const P_prev = radialPDF(n, l, r[i - 1]);
-      const P_curr = radialPDF(n, l, r[i]);
+      const P_prev = radialPDF(n, l, r[i - 1], 1, 1, atomType);
+      const P_curr = radialPDF(n, l, r[i], 1, 1, atomType);
       // 梯形法则：积分 ≈ (f(a) + f(b)) * h / 2
       cumulative += (P_prev + P_curr) * dr / 2;
       cdf[i] = cumulative;
@@ -660,10 +702,11 @@
    * 精确逆CDF采样：从径向分布 P(r) 精确采样
    * @param {number} n - 主量子数
    * @param {number} l - 角量子数
+   * @param {string} atomType - 原子类型
    * @returns {number} 采样得到的 r 值
    */
-  function sampleRadialExact(n, l) {
-    const { r, cdf, numPoints } = buildRadialCDF(n, l);
+  function sampleRadialExact(n, l, atomType = 'H') {
+    const { r, cdf, numPoints } = buildRadialCDF(n, l, 2000, atomType);
 
     // 生成 [0, 1) 均匀随机数
     const u = Math.random();
@@ -903,10 +946,10 @@
    * 
    * 这确保最终分布精确等于 |ψ|² = R²(r) × |Y|²(θ,φ)
    */
-  function importanceSample(n, l, angKey, samplingBoundary = Infinity) {
+  function importanceSample(n, l, angKey, samplingBoundary = Infinity, atomType = 'H') {
     // ==================== 第一步：径向采样（精确逆CDF） ====================
     // 直接从精确的 P(r) 分布采样，无需接受-拒绝
-    let r = sampleRadialExact(n, l);
+    let r = sampleRadialExact(n, l, atomType);
 
     // 边界检查
     if (r > samplingBoundary * 2) {
@@ -1061,11 +1104,10 @@
    * 2. 角向：均匀球面采样
    * 3. 接受-拒绝：按杂化密度权重决定接受
    * 
-   * @param {Array} paramsList - 轨道参数列表
-   * @param {number} samplingBoundary - 采样边界
+   * @param {string} atomType - 原子类型
    * @returns {Object|null} - 采样结果 { x, y, z, r, theta, phi, psi, accepted }
    */
-  function hybridImportanceSample(paramsList, samplingBoundary) {
+  function hybridImportanceSample(paramsList, samplingBoundary, atomType = 'H') {
     if (!paramsList || paramsList.length === 0) return null;
 
     const numOrbitals = paramsList.length;
@@ -1089,7 +1131,7 @@
     let psi = 0;
     for (const p of paramsList) {
       const coeff = p.coefficient !== undefined ? p.coefficient : defaultCoeff;
-      const R = radialR(p.n, p.l, r);
+      const R = radialR(p.n, p.l, r, 1, 1, atomType);
       const Y = realYlm_value(p.angKey.l, p.angKey.m, p.angKey.t, theta, phi);
       psi += coeff * R * Y;
     }
@@ -1100,7 +1142,7 @@
     // 其中 P_i(r) = r² |R_i(r)|²
     let proposalDensity = 0;
     for (const p of paramsList) {
-      const R = radialR(p.n, p.l, r);
+      const R = radialR(p.n, p.l, r, 1, 1, atomType);
       proposalDensity += r * r * R * R / (4 * PI);
     }
     proposalDensity /= numOrbitals;
@@ -1153,15 +1195,14 @@
    * 但由于球谐函数的正交性，交叉项在角向积分后消失
    * 所以 P_hybrid(r) = r² × Σ |c_i|² × |R_i(r)|²
    * 
-   * @param {Array} paramsList - 轨道参数列表
-   * @param {number} numPoints - CDF表点数
+   * @param {string} atomType - 原子类型
    * @returns {Object} { r, cdf, rMax, ... }
    */
-  function buildHybridRadialCDF(paramsList, numPoints = 2000) {
+  function buildHybridRadialCDF(paramsList, numPoints = 2000, atomType = 'H') {
     if (!paramsList || paramsList.length === 0) return null;
 
     // 生成缓存key
-    const key = paramsList.map(p => `${p.n}_${p.l}`).join('|');
+    const key = paramsList.map(p => `${p.n}_${p.l}`).join('|') + '_' + atomType;
     if (_cdfCache['hybrid_' + key]) {
       return _cdfCache['hybrid_' + key];
     }
@@ -1197,8 +1238,8 @@
         const coeff = p.coefficient !== undefined ? p.coefficient : defaultCoeff;
         const c2 = coeff * coeff;
 
-        const R_prev = radialR(p.n, p.l, r_prev);
-        const R_curr = radialR(p.n, p.l, r_curr);
+        const R_prev = radialR(p.n, p.l, r_prev, 1, 1, atomType);
+        const R_curr = radialR(p.n, p.l, r_curr, 1, 1, atomType);
 
         P_prev += c2 * r_prev * r_prev * R_prev * R_prev;
         P_curr += c2 * r_curr * r_curr * R_curr * R_curr;
@@ -1232,14 +1273,14 @@
    * 
    * 这个方法在理论上最接近"精确采样"，效率最高
    */
-  function hybridPreciseSample(paramsList, samplingBoundary) {
+  function hybridPreciseSample(paramsList, samplingBoundary, atomType = 'H') {
     if (!paramsList || paramsList.length === 0) return null;
 
     const numOrbitals = paramsList.length;
     const defaultCoeff = 1.0 / Math.sqrt(numOrbitals);
 
     // 构建/获取杂化CDF
-    const cdfData = buildHybridRadialCDF(paramsList);
+    const cdfData = buildHybridRadialCDF(paramsList, 2000, atomType);
     if (!cdfData) return null;
 
     // ==================== 第一步：从杂化径向CDF精确采样 ====================
@@ -1835,5 +1876,6 @@ return axis;
     // 轨道对称轴
     getOrbitalSymmetryAxis,
     getRotationToAxis,
+    slaterRadialR, // Export STO function
   };
 })();
