@@ -1621,6 +1621,7 @@ window.ElectronCloud.UI.orbitalDistanceTable = {
 window.ElectronCloud.UI.getPointSize = function () {
     const ui = window.ElectronCloud.ui;
     const state = window.ElectronCloud.state;
+    const Hydrogen = window.Hydrogen;
     const distanceTable = window.ElectronCloud.UI.orbitalDistanceTable;
 
     if (!ui.sizeRange) return 0.06;
@@ -1634,12 +1635,22 @@ window.ElectronCloud.UI.getPointSize = function () {
 
     // 基准最远距离（对应 n=2 轨道）
     const baseDistance = 60;
+    const atomType = state.currentAtom || 'H';
 
     // 获取当前选中轨道中最大的预估距离
     let maxDistance = baseDistance; // 默认值
 
-    // 优先从 state.currentOrbitals 获取（适用于所有模式）
-    if (state.currentOrbitals && state.currentOrbitals.length > 0) {
+    // 优先使用动态估算函数（支持非氢原子）
+    if (Hydrogen && Hydrogen.estimateOrbitalRadius95 && state.currentOrbitals && state.currentOrbitals.length > 0) {
+        for (const orbitalKey of state.currentOrbitals) {
+            const dist = Hydrogen.estimateOrbitalRadius95(atomType, orbitalKey);
+            if (dist && dist > maxDistance) {
+                maxDistance = dist;
+            }
+        }
+    }
+    // 备用：从静态表获取（仅氢原子）
+    else if (state.currentOrbitals && state.currentOrbitals.length > 0) {
         for (const orbitalKey of state.currentOrbitals) {
             const dist = distanceTable[orbitalKey];
             if (dist && dist > maxDistance) {
@@ -1647,7 +1658,7 @@ window.ElectronCloud.UI.getPointSize = function () {
             }
         }
     }
-    // 备用：从 UI 选择框获取
+    // 再备用：从 UI 选择框获取
     else if (ui.orbitalSelect) {
         const selectedOptions = ui.orbitalSelect.selectedOptions;
         if (selectedOptions && selectedOptions.length > 0) {

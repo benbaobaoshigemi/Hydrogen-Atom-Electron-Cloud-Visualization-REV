@@ -285,6 +285,14 @@
         const dy = (maxY - minY) / resolution;
         const dz = (maxZ - minZ) / resolution;
 
+        // 支持非对称阈值
+        let isoPos = isovalue;
+        let isoNeg = isovalue;
+        if (typeof isovalue === 'object' && isovalue !== null) {
+            isoPos = isovalue.positive;
+            isoNeg = isovalue.negative;
+        }
+
         const grid = new Float32Array((resolution + 1) ** 3);
         let idx = 0;
         for (let iz = 0; iz <= resolution; iz++) {
@@ -313,8 +321,8 @@
                         values[v] = grid[gi];
                     }
 
-                    processCube(values, isovalue, baseX, baseY, baseZ, dx, dy, dz, positiveTriangles);
-                    processCube(values, -isovalue, baseX, baseY, baseZ, dx, dy, dz, negativeTriangles);
+                    processCube(values, isoPos, baseX, baseY, baseZ, dx, dy, dz, positiveTriangles);
+                    processCube(values, -isoNeg, baseX, baseY, baseZ, dx, dy, dz, negativeTriangles);
                 }
             }
         }

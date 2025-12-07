@@ -57,6 +57,45 @@ window.ElectronCloud.Orbital.startDrawing = function () {
     state.samplingBoundary = Math.max(12, 4 * maxN * maxN + 2 * maxN);
     console.log(`根据最大主量子数 n=${maxN} 调整采样边界为: ${state.samplingBoundary}`);
 
+    // 【新增】根据预估轨道半径自动缩放相机
+    // 目标：使轨道轮廓最长处占画面高度的约 2/3
+    if (Hydrogen.estimateOrbitalRadius95 && state.camera) {
+        let maxRadius = 15; // 默认 1s 轨道
+        const atomType = state.currentAtom || 'H';
+
+        for (const key of state.currentOrbitals) {
+            const r95 = Hydrogen.estimateOrbitalRadius95(atomType, key);
+            if (r95 > maxRadius) maxRadius = r95;
+        }
+
+        // 相机距离计算：使轨道占画面高度 2/3
+        // FOV = 75°，半FOV = 37.5°
+        // 占画面 2/3 意味着轨道半径对应的视角是 (2/3) × 37.5° ≈ 25°
+        // distance = radius / tan(25°) ≈ radius × 2.14
+        // 但用户反馈太远，改为 radius × 1.2 使轨道更大
+        const targetDistance = maxRadius * 0.3;
+
+        // 限制在合理范围内
+        const newDistance = Math.max(10, Math.min(500, targetDistance));
+
+        // 保持相机方向不变，只改变距离
+        const currentPos = state.camera.position;
+        const currentDist = currentPos.length();
+        if (currentDist > 0) {
+            const scale = newDistance / currentDist;
+            state.camera.position.multiplyScalar(scale);
+        } else {
+            state.camera.position.set(0, 0, newDistance);
+        }
+
+        // 更新控制器（如果有）
+        if (state.controls) {
+            state.controls.update();
+        }
+
+        console.log(`自动缩放相机：预估轨道半径=${maxRadius.toFixed(1)}, 相机距离=${newDistance.toFixed(1)}`);
+    }
+
     const maxPointsValue = ui.maxPointsSelect.value;
     state.MAX_POINTS = parseInt(maxPointsValue, 10);
 

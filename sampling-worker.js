@@ -141,7 +141,9 @@ function radialR(n, l, r, Z = 1, a0 = A0, atomType = 'H') {
         const orbitalKey = getOrbitalKey(n, l);
         const atomData = self.SlaterBasis[atomType];
         if (atomData && atomData.orbitals && atomData.orbitals[orbitalKey]) {
-            return slaterRadialR(atomData.orbitals[orbitalKey], r);
+            // 【关键修复】Clementi-Roetti STO 基组的相位约定与氢原子解析解相反
+            // 对 STO 结果取负以保持相位一致性
+            return -slaterRadialR(atomData.orbitals[orbitalKey], r);
         }
     }
 

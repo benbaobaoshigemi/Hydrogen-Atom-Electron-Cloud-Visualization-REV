@@ -462,6 +462,7 @@ window.ElectronCloud.Visualization.enableContourHighlight = function () {
     const usePerPointOrbital = (isCompareMode || isHybridMode) && state.pointOrbitalIndices;
 
     // 计算每个点的密度和波函数符号（相位）
+    const atomType = state.currentAtom || 'H';
     for (let i = 0; i < pointCount; i++) {
         const i3 = i * 3;
         const x = positions.array[i3];
@@ -481,7 +482,7 @@ window.ElectronCloud.Visualization.enableContourHighlight = function () {
 
             for (let j = 0; j < orbitalParams.length; j++) {
                 const op = orbitalParams[j];
-                const R = Hydrogen.radialWavefunction(op.n, op.l, r);
+                const R = Hydrogen.radialWavefunction(op.n, op.l, r, 1, 1, atomType);
                 const Y = Hydrogen.realYlm_value(op.angKey.l, op.angKey.m, op.angKey.t, theta, phi);
                 psi += coeffs[j] * R * Y;
             }
@@ -490,14 +491,14 @@ window.ElectronCloud.Visualization.enableContourHighlight = function () {
             // 比照模式：使用该点所属的轨道
             const orbitalIndex = state.pointOrbitalIndices[i] || 0;
             const op = orbitalParams[orbitalIndex] || orbitalParams[0];
-            const R = Hydrogen.radialWavefunction(op.n, op.l, r);
+            const R = Hydrogen.radialWavefunction(op.n, op.l, r, 1, 1, atomType);
             const Y = Hydrogen.realYlm_value(op.angKey.l, op.angKey.m, op.angKey.t, theta, phi);
             psi = R * Y;
             density = psi * psi;
         } else {
             // 单选或多选叠加模式
             for (const op of orbitalParams) {
-                const R = Hydrogen.radialWavefunction(op.n, op.l, r);
+                const R = Hydrogen.radialWavefunction(op.n, op.l, r, 1, 1, atomType);
                 const Y = Hydrogen.realYlm_value(op.angKey.l, op.angKey.m, op.angKey.t, theta, phi);
                 psi += R * Y;
             }
@@ -654,6 +655,7 @@ window.ElectronCloud.Visualization.createContourInterpolationPoints = function (
     }
 
     // 计算波函数值
+    const atomType = state.currentAtom || 'H';
     const calcPsi = (r, theta, phi) => {
         if (isHybridMode && coeffMatrix) {
             // 杂化模式：取所有杂化轨道中绝对值最大的波函数
@@ -664,7 +666,7 @@ window.ElectronCloud.Visualization.createContourInterpolationPoints = function (
                 let psi = 0;
                 for (let j = 0; j < orbitalParams.length; j++) {
                     const op = orbitalParams[j];
-                    const R = Hydrogen.radialWavefunction(op.n, op.l, r);
+                    const R = Hydrogen.radialWavefunction(op.n, op.l, r, 1, 1, atomType);
                     const Y = Hydrogen.realYlm_value(op.angKey.l, op.angKey.m, op.angKey.t, theta, phi);
                     psi += coeffs[j] * R * Y;
                 }
@@ -678,7 +680,7 @@ window.ElectronCloud.Visualization.createContourInterpolationPoints = function (
             // 单选或多选模式
             let psi = 0;
             for (const op of orbitalParams) {
-                const R = Hydrogen.radialWavefunction(op.n, op.l, r);
+                const R = Hydrogen.radialWavefunction(op.n, op.l, r, 1, 1, atomType);
                 const Y = Hydrogen.realYlm_value(op.angKey.l, op.angKey.m, op.angKey.t, theta, phi);
                 psi += R * Y;
             }
@@ -881,6 +883,7 @@ window.ElectronCloud.Visualization.updatePointColors = function () {
     const colorPos = { r: pc.positive.r, g: pc.positive.g, b: pc.positive.b }; // 正相位：蓝色
     const colorNeg = { r: pc.negative.r, g: pc.negative.g, b: pc.negative.b }; // 负相位：红色
     const colorWhite = { r: pc.neutral.r, g: pc.neutral.g, b: pc.neutral.b };
+    const atomType = state.currentAtom || 'H';
 
     // 遍历所有点
     for (let i = 0; i < pointCount; i++) {
@@ -912,7 +915,7 @@ window.ElectronCloud.Visualization.updatePointColors = function () {
                     let hPsi = 0;
                     for (let k = 0; k < orbitalParams.length; k++) {
                         const op = orbitalParams[k];
-                        hPsi += coeffMatrix[h][k] * Hydrogen.radialWavefunction(op.n, op.l, r) *
+                        hPsi += coeffMatrix[h][k] * Hydrogen.radialWavefunction(op.n, op.l, r, 1, 1, atomType) *
                             Hydrogen.realYlm_value(op.angKey.l, op.angKey.m, op.angKey.t, theta, phi);
                     }
                     if (Math.abs(hPsi) > maxAbsPsi) {
@@ -926,7 +929,7 @@ window.ElectronCloud.Visualization.updatePointColors = function () {
                 // 但为了相位显示的连续性，我们可以计算叠加场的相位，或者区分轨道
                 // 这里采用：计算叠加波函数 psi (简单叠加)
                 for (const op of orbitalParams) {
-                    psi += Hydrogen.radialWavefunction(op.n, op.l, r) *
+                    psi += Hydrogen.radialWavefunction(op.n, op.l, r, 1, 1, atomType) *
                         Hydrogen.realYlm_value(op.angKey.l, op.angKey.m, op.angKey.t, theta, phi);
                 }
             }
@@ -965,6 +968,7 @@ window.ElectronCloud.Visualization.createContourMesh = function (group, baseRadi
     }
 
     // 波函数计算 (直角坐标)
+    const atomType = state.currentAtom || 'H';
     function calcPsi(x, y, z) {
         const r = Math.sqrt(x * x + y * y + z * z);
         if (r < 1e-10) return 0;
@@ -977,7 +981,7 @@ window.ElectronCloud.Visualization.createContourMesh = function (group, baseRadi
                 let psi = 0;
                 for (let i = 0; i < orbitalParams.length; i++) {
                     const op = orbitalParams[i];
-                    psi += coeffMatrix[h][i] * Hydrogen.radialWavefunction(op.n, op.l, r) *
+                    psi += coeffMatrix[h][i] * Hydrogen.radialWavefunction(op.n, op.l, r, 1, 1, atomType) *
                         Hydrogen.realYlm_value(op.angKey.l, op.angKey.m, op.angKey.t, theta, phi);
                 }
                 if (Math.abs(psi) > maxAbsPsi) { maxAbsPsi = Math.abs(psi); dominantPsi = psi; }
@@ -986,7 +990,7 @@ window.ElectronCloud.Visualization.createContourMesh = function (group, baseRadi
         } else {
             let psi = 0;
             for (const op of orbitalParams) {
-                psi += Hydrogen.radialWavefunction(op.n, op.l, r) *
+                psi += Hydrogen.radialWavefunction(op.n, op.l, r, 1, 1, atomType) *
                     Hydrogen.realYlm_value(op.angKey.l, op.angKey.m, op.angKey.t, theta, phi);
             }
             return psi;
@@ -1001,8 +1005,9 @@ window.ElectronCloud.Visualization.createContourMesh = function (group, baseRadi
         const i3 = i * 3;
         psiValues.push(Math.abs(calcPsi(positions[i3], positions[i3 + 1], positions[i3 + 2])));
     }
-    psiValues.sort((a, b) => a - b);
-    const isovalue = psiValues[Math.floor(psiValues.length * 0.05)] || 0.0001;
+    psiValues.sort((a, b) => b - a);  // 从大到小排序
+    // 95% 等值面：取第 95% 位置的值（即只有 5% 的点的 |ψ| 低于此阈值）
+    const isovalue = psiValues[Math.floor(psiValues.length * 0.95)] || 0.0001;
 
     // Marching Cubes - 优化分辨率以兼顾性能和质量
     const bound = baseRadius * 1.3;
@@ -1104,7 +1109,6 @@ window.ElectronCloud.Visualization.updateContourOverlay = function () {
 
     state.scene.add(state.contourOverlay);
 };
-
 /**
  * 创建杂化轨道的独立等值面轮廓（每个轨道一个）
  * 只为可见的轨道创建等值面
@@ -1122,6 +1126,9 @@ window.ElectronCloud.Visualization.createHybridContourOverlays = function () {
 
     if (orbitalParams.length === 0) return overlays;
 
+    // 获取原子类型
+    const atomType = state.currentAtom || 'H';
+
     // 对轨道进行排序
     if (Hydrogen.sortOrbitalsForHybridization) {
         orbitalParams = Hydrogen.sortOrbitalsForHybridization(orbitalParams);
@@ -1131,6 +1138,15 @@ window.ElectronCloud.Visualization.createHybridContourOverlays = function () {
     const coeffMatrix = Hydrogen.getHybridCoefficients ? Hydrogen.getHybridCoefficients(numOrbitals) : null;
 
     if (!coeffMatrix) return overlays;
+
+    // 使用 estimateOrbitalRadius95 计算正确的轨道边界
+    let estimatedRadius = 15; // 默认值
+    if (Hydrogen.estimateOrbitalRadius95) {
+        for (const key of orbitals) {
+            const r95 = Hydrogen.estimateOrbitalRadius95(atomType, key);
+            if (r95 > estimatedRadius) estimatedRadius = r95;
+        }
+    }
 
     // 不同颜色用于区分各个杂化轨道
     const colors = [
@@ -1187,7 +1203,7 @@ window.ElectronCloud.Visualization.createHybridContourOverlays = function () {
             let psi = 0;
             for (let j = 0; j < orbitalParams.length; j++) {
                 const op = orbitalParams[j];
-                const R = Hydrogen.radialWavefunction(op.n, op.l, r);
+                const R = Hydrogen.radialWavefunction(op.n, op.l, r, 1, 1, atomType);
                 const Y = Hydrogen.realYlm_value(op.angKey.l, op.angKey.m, op.angKey.t, theta, phi);
                 psi += coeffs[j] * R * Y;
             }
@@ -1196,7 +1212,7 @@ window.ElectronCloud.Visualization.createHybridContourOverlays = function () {
 
         // 计算该轨道点的95%分位密度阈值
         const positions = state.points.geometry.attributes.position.array;
-        const psiValues = [];
+        const rawPsiValues = [];  // 带符号的原始值
         let maxR = 0;
 
         for (const pointIdx of pointIndices) {
@@ -1208,23 +1224,45 @@ window.ElectronCloud.Visualization.createHybridContourOverlays = function () {
             if (r > maxR) maxR = r;
 
             // 计算此处的 psi
-            psiValues.push(Math.abs(calcPsi(x, y, z)));
+            const psi = calcPsi(x, y, z);
+            rawPsiValues.push(psi);
         }
 
-        if (psiValues.length < 50) return null;
+        if (rawPsiValues.length < 50) return null;
 
-        psiValues.sort((a, b) => a - b);
-        // 95% 概率包含在等值面内 = 5% 的点在外面 (小值)
-        const isovalue = psiValues[Math.floor(psiValues.length * 0.05)] || 0.0001;
+        // 【关键修复】分别计算正负波瓣的 95% 阈值
+        const posValues = rawPsiValues.filter(v => v > 0).sort((a, b) => b - a); // 降序 (大->小)
+        const negValues = rawPsiValues.filter(v => v < 0).map(v => Math.abs(v)).sort((a, b) => b - a); // 绝对值降序
+
+        // 正瓣阈值
+        const isovaluePos = posValues.length > 10
+            ? posValues[Math.floor(posValues.length * 0.95)]
+            : 0.0001;
+
+        // 负瓣阈值
+        const isovalueNeg = negValues.length > 10
+            ? negValues[Math.floor(negValues.length * 0.95)]
+            : 0.0001;
+
+        // 【调试】验证包裹点数
+        const posPoints = posValues.length;
+        const negPoints = negValues.length;
+        const posInside = rawPsiValues.filter(v => v >= isovaluePos).length;
+        const negInside = rawPsiValues.filter(v => v <= -isovalueNeg).length;
+
+        console.log(`[DEBUG 等值面] hybridIndex=${hybridIndex}:`);
+        console.log(`  正瓣: 总点数=${posPoints}, 阈值=${isovaluePos.toExponential(4)}, 被包裹=${posInside} (${(posPoints > 0 ? posInside / posPoints * 100 : 0).toFixed(1)}%)`);
+        console.log(`  负瓣: 总点数=${negPoints}, 阈值=${isovalueNeg.toExponential(4)}, 被包裹=${negInside} (${(negPoints > 0 ? negInside / negPoints * 100 : 0).toFixed(1)}%)`);
+        console.log(`  maxR=${maxR.toFixed(2)}, estimatedRadius=${estimatedRadius.toFixed(2)}, bound=${Math.max(maxR, estimatedRadius) * 1.5}`);
 
         // Marching Cubes
-        // 边界：使用最大点半径再扩大一点
-        const bound = (maxR > 0 ? maxR : 10) * 1.3;
-        const resolution = 120; // 提升分辨率至 120
+        const bound = Math.max(maxR, estimatedRadius) * 1.5;
+        const resolution = 100;
 
-        const result = window.MarchingCubes.run(calcPsi, { min: [-bound, -bound, -bound], max: [bound, bound, bound] }, resolution, isovalue);
+        // 传入非对称阈值对象
+        const isovalues = { positive: isovaluePos, negative: isovalueNeg };
+        const result = window.MarchingCubes.run(calcPsi, { min: [-bound, -bound, -bound], max: [bound, bound, bound] }, resolution, isovalues);
 
-        // 添加网格
         // 添加网格
         function addLobeMeshes(triangles, meshColor) {
             if (triangles.length < 9) return;

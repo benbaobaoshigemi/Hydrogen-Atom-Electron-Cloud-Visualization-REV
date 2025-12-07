@@ -132,7 +132,9 @@
       const orbitalKey = getOrbitalKey(n, l);
       const atomData = window.SlaterBasis[atomType];
       if (atomData && atomData.orbitals && atomData.orbitals[orbitalKey]) {
-        return slaterRadialR(atomData.orbitals[orbitalKey], r);
+        // 【关键修复】Clementi-Roetti STO 基组的相位约定与氢原子解析解相反
+        // 对 STO 结果取负以保持相位一致性
+        return -slaterRadialR(atomData.orbitals[orbitalKey], r);
       }
       // If orbital not defined for this atom (e.g. C-3s), fall back to Hydrogen-like or 0?
       // Fallback to Hydrogen-like with Z_eff might be better, or just pure Hydrogen Z=1 for now.
@@ -1323,7 +1325,7 @@
 
     for (const p of paramsList) {
       const coeff = p.coefficient !== undefined ? p.coefficient : defaultCoeff;
-      const R = radialR(p.n, p.l, r);
+      const R = radialR(p.n, p.l, r, 1, A0, atomType);
       const Y = realYlm_value(p.angKey.l, p.angKey.m, p.angKey.t, theta, phi);
       psi += coeff * R * Y;
       radialSum2 += coeff * coeff * R * R;
@@ -1639,7 +1641,7 @@
     // 例如 2s 轨道在远端是负的，而 2px 在 +x 是负的（由于 Condon-Shortley 相位）
     // 简单的角向叠加会导致错误的干涉预测（如预测在 -x 增强，实际在 +x 增强）
     // 使用 r = n^2 (玻尔半径单位) 作为特征半径进行采样
-    const n = sortedParams[0].n; // Assuming all orbitals in a hybrid have the same principal quantum number 'n' for simplicity, or taking the first one as representative.
+    const n = sortedParams[0].n;
     const r_characteristic = n * n;
 
     // 计算给定方向上的3D密度
@@ -1667,59 +1669,57 @@
         }
       }
     }
-    return { x: 0, y: 0, z: 1 };
+
+    // 【修复】继续执行第二阶段细化搜索，而不是提前返回
+    // 第二阶段：细化搜索 - 在最佳点附近精细搜索
+    const dTheta = Math.PI / thetaSteps;
+
+    for (let iter = 0; iter < 3; iter++) {
+      const searchRange = dTheta / Math.pow(2, iter);
+      let localMax = maxIntensity;
+      let localBestTheta = bestTheta;
+      let localBestPhi = bestPhi;
+
+      for (let i = -5; i <= 5; i++) {
+        const theta = Math.max(0, Math.min(Math.PI, bestTheta + i * searchRange / 5));
+        for (let j = -5; j <= 5; j++) {
+          const phi = (bestPhi + j * searchRange / 5 + 2 * Math.PI) % (2 * Math.PI);
+          const intensity = getDensityAt(theta, phi);
+          if (intensity > localMax) {
+            localMax = intensity;
+            localBestTheta = theta;
+            localBestPhi = phi;
+          }
+        }
+      }
+      maxIntensity = localMax;
+      bestTheta = localBestTheta;
+      bestPhi = localBestPhi;
+    }
+
+    // 转换为直角坐标
+    const sinTheta = Math.sin(bestTheta);
+    let axis = {
+      x: sinTheta * Math.cos(bestPhi),
+      y: sinTheta * Math.sin(bestPhi),
+      z: Math.cos(bestTheta)
+    };
+
+    // 【无需反转】
+    // 因为我们直接搜索的是概率密度 |Ψ|² 的最大值
+    // 所以找到的方向一定是指向电子云密度最大的"瓣"
+    // 不需要再根据波函数符号进行反转（密度总是正的）
+
+    console.log('[DEBUG findHybridPrincipalAxis] Final axis:', axis, 'maxDensity:', maxIntensity);
+    return axis;
   }
 
   /**
-  // 第二阶段：细化搜索 - 在最佳点附近精细搜索
-  const dTheta = Math.PI / thetaSteps;
-
-  for (let iter = 0; iter < 3; iter++) {
-    const searchRange = dTheta / Math.pow(2, iter);
-  let localMax = maxIntensity;
-  let localBestTheta = bestTheta;
-  let localBestPhi = bestPhi;
-
-  for (let i = -5; i <= 5; i++) {
-    const theta = Math.max(0, Math.min(Math.PI, bestTheta + i * searchRange / 5));
-    for (let j = -5; j <= 5; j++) {
-      const phi = (bestPhi + j * searchRange / 5 + 2 * Math.PI) % (2 * Math.PI);
-      const intensity = getDensityAt(theta, phi);
-      if (intensity > localMax) {
-        localMax = intensity;
-        localBestTheta = theta;
-        localBestPhi = phi;
-      }
-    }
-  }
-  maxIntensity = localMax;
-  bestTheta = localBestTheta;
-  bestPhi = localBestPhi;
-}
-
-// 转换为直角坐标
-const sinTheta = Math.sin(bestTheta);
-let axis = {
-  x: sinTheta * Math.cos(bestPhi),
-  y: sinTheta * Math.sin(bestPhi),
-  z: Math.cos(bestTheta)
-};
-
-// 【无需反转】
-// 因为我们直接搜索的是概率密度 |Ψ|² 的最大值
-// 所以找到的方向一定是指向电子云密度最大的“瓣”
-// 不需要再根据波函数符号进行反转（密度总是正的）
-
-console.log('[DEBUG findHybridPrincipalAxis] Final axis:', axis, 'maxDensity:', maxIntensity);
-return axis;
-}
-
-/**
- * 计算从 z 轴旋转到目标轴的四元数
- * 
- * @param {Object} targetAxis - {x, y, z} 目标轴方向单位向量
- * @returns {Object} - {x, y, z, w} 四元数
- */
+   * 计算从 z 轴旋转到目标轴的四元数
+   * 
+   * @param {Object} targetAxis - {x, y, z} 目标轴方向单位向量
+   * @returns {Object} - {x, y, z, w} 四元数
+   */
   /**
    * Group Theory / Composition Analysis for "All" Mode
    * Determines the highest symmetry axis based on the set of constituent orbitals.
@@ -1828,6 +1828,68 @@ return axis;
     };
   }
 
+  /**
+   * 估算轨道的 95% 等值面半径
+   * 用于渲染前自动缩放相机和调整点大小
+   * 
+   * @param {string} atomType - 原子类型（'H', 'C', 'Kr' 等）
+   * @param {string} orbitalKey - 轨道键值（'1s', '2px', '3d_xy' 等）
+   * @returns {number} - 估算的 95% 等值面半径（玻尔半径单位）
+   */
+  function estimateOrbitalRadius95(atomType, orbitalKey) {
+    // 从轨道键值解析 n 和 l
+    const params = orbitalParamsFromKey(orbitalKey);
+    if (!params) return 15; // 默认值
+
+    const n = params.n;
+    const l = params.l;
+
+    // 氢原子：使用解析解公式 15 × n²
+    if (!atomType || atomType === 'H') {
+      return 15 * n * n;
+    }
+
+    // 非氢原子：基于 STO 数据估算
+    const orbitalId = getOrbitalKey(n, l); // 例如 '2s', '3p'
+    const SlaterBasis = window.SlaterBasis;
+
+    if (!SlaterBasis || !SlaterBasis[atomType] || !SlaterBasis[atomType].orbitals) {
+      // 无 STO 数据，回退到氢原子公式
+      return 15 * n * n;
+    }
+
+    const basis = SlaterBasis[atomType].orbitals[orbitalId];
+    if (!basis || basis.length === 0) {
+      return 15 * n * n;
+    }
+
+    // 计算加权平均 zeta（按系数绝对值加权）
+    let sumWeight = 0;
+    let sumZeta = 0;
+    let maxN = 1;
+
+    for (const term of basis) {
+      const weight = Math.abs(term.coeff);
+      sumWeight += weight;
+      sumZeta += weight * term.zeta;
+      if (term.nStar > maxN) maxN = term.nStar;
+    }
+
+    if (sumWeight < 1e-10) {
+      return 15 * n * n;
+    }
+
+    const zetaAvg = sumZeta / sumWeight;
+
+    // STO 峰值半径 ≈ n / zeta
+    // 95% 等值面半径约为峰值半径的 2.5-3 倍
+    const rPeak = maxN / zetaAvg;
+    const r95 = rPeak * 3.0;
+
+    // 返回估算值，但设置合理的最小值
+    return Math.max(2, r95);
+  }
+
   window.Hydrogen = {
     A0,
     radialR,
@@ -1877,5 +1939,6 @@ return axis;
     getOrbitalSymmetryAxis,
     getRotationToAxis,
     slaterRadialR, // Export STO function
+    estimateOrbitalRadius95, // 轨道半径估算（用于自动缩放）
   };
 })();

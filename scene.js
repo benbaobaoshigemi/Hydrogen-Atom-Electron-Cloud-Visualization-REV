@@ -709,6 +709,7 @@ window.ElectronCloud.Scene.animate = function () {
                             }
 
                             // 第一步：计算每个点的密度
+                            const atomType = state.currentAtom || 'H';
                             for (let i = 0; i < processCount; i++) {
                                 const i3 = i * 3;
                                 const x = positions.array[i3];
@@ -729,7 +730,7 @@ window.ElectronCloud.Scene.animate = function () {
                                     let psi = 0;
                                     for (let j = 0; j < state.waveOrbitalParams.length; j++) {
                                         const op = state.waveOrbitalParams[j];
-                                        const R = Hydrogen.radialWavefunction(op.n, op.l, r);
+                                        const R = Hydrogen.radialWavefunction(op.n, op.l, r, 1, 1, atomType);
                                         const Y = Hydrogen.realYlm_value(op.angKey.l, op.angKey.m, op.angKey.t, theta, phi);
                                         psi += coeffs[j] * R * Y;
                                     }
@@ -742,11 +743,11 @@ window.ElectronCloud.Scene.animate = function () {
                                         orbitalParams.angKey,
                                         orbitalParams.n,
                                         orbitalParams.l,
-                                        r, theta, phi
+                                        r, theta, phi, 1, 1, atomType
                                     );
                                 } else if (isHybridMode && Hydrogen.allHybridOrbitalsDensity3D) {
                                     // 【全部杂化轨道模式】（旧逻辑备用）
-                                    density = Hydrogen.allHybridOrbitalsDensity3D(state.waveOrbitalParams, r, theta, phi);
+                                    density = Hydrogen.allHybridOrbitalsDensity3D(state.waveOrbitalParams, r, theta, phi, 1, 1, atomType);
                                 } else {
                                     // 【关键修复】多选叠加模式：使用所有轨道的混合密度
                                     for (const orbitalParams of state.waveOrbitalParams) {
@@ -754,7 +755,7 @@ window.ElectronCloud.Scene.animate = function () {
                                             orbitalParams.angKey,
                                             orbitalParams.n,
                                             orbitalParams.l,
-                                            r, theta, phi
+                                            r, theta, phi, 1, 1, atomType
                                         );
                                     }
                                     // 取平均
