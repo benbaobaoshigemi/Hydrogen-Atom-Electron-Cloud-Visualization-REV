@@ -127,14 +127,39 @@
   // Normalized radial R_nl(r) with ∫|R|^2 r^2 dr = 1
   // Modified to support STO strategy for non-Hydrogen atoms
   function radialR(n, l, r, Z = 1, a0 = A0, atomType = 'H') {
-    // Strategy A: Slater Type Orbitals (STO)
+    // 策略 A: Slater Type Orbitals (STO)
     if (atomType && atomType !== 'H' && window.SlaterBasis) {
       const orbitalKey = getOrbitalKey(n, l);
       const atomData = window.SlaterBasis[atomType];
       if (atomData && atomData.orbitals && atomData.orbitals[orbitalKey]) {
-        // 【关键修复】Clementi-Roetti STO 基组的相位约定与氢原子解析解相反
-        // 对 STO 结果取负以保持相位一致性
-        return -slaterRadialR(atomData.orbitals[orbitalKey], r);
+        const basis = atomData.orbitals[orbitalKey];
+        const val = slaterRadialR(basis, r);
+
+        // 【智能相位校正】
+        // 目标：确保 STO 波函数在远核区域（大 r）的符号与氢原子解析解一致
+        // 氢原子解析解 R_nl(r) 在大 r 处的符号由 Laguerre 多项式的最高次项决定 -> (-1)^(n-l-1)
+        const analyticalSign = ((n - l - 1) % 2 === 0) ? 1 : -1;
+
+        // 寻找 STO 在大 r 处的主导项（zeta 最小的项，即衰减最慢的项）
+        let dominantTerm = basis[0];
+        for (let i = 1; i < basis.length; i++) {
+          const term = basis[i];
+          // 优先找 zeta 更小的
+          // 如果 zeta 相同（极少见），找 nStar 更大的（r 的幂次更高）
+          if (term.zeta < dominantTerm.zeta ||
+            (Math.abs(term.zeta - dominantTerm.zeta) < 1e-9 && term.nStar > dominantTerm.nStar)) {
+            dominantTerm = term;
+          }
+        }
+
+        const stoSign = Math.sign(dominantTerm.coeff);
+
+        // 如果符号不一致，则翻转 STO 结果
+        // 注意：我们忽略极小数值的符号震荡，只看主导符号
+        if (stoSign * analyticalSign < 0) {
+          return -val;
+        }
+        return val;
       }
       // If orbital not defined for this atom (e.g. C-3s), fall back to Hydrogen-like or 0?
       // Fallback to Hydrogen-like with Z_eff might be better, or just pure Hydrogen Z=1 for now.
@@ -177,17 +202,52 @@
   function hybridRadialPDF(paramsList, r, Z = 1, a0 = A0, atomType = 'H') {
     if (!paramsList || paramsList.length === 0) return 0;
 
+    // 【数学严谨性修复】
+    // 原公式 P = r² * Σ |c_i|² * |R_i|² 仅在所有轨道角向正交时成立
+    // 对于角向相同轨道（如 1s + 2s 或 2pz + 3pz）的混合，必须包含交叉项（干涉项）
+    // 通用公式：P(r) = r² * ∫ |Σ c_i R_i Y_i|² dΩ
+    //                = r² * Σ_i Σ_j c_i c_j R_i R_j * ⟨Y_i|Y_j⟩
+    // 由于实球谐函数正交性，⟨Y_i|Y_j⟩ = δ_{ang_i, ang_j}
+
     const numOrbitals = paramsList.length;
     const defaultCoeff = 1.0 / Math.sqrt(numOrbitals);
 
-    let sum = 0;
-    for (const p of paramsList) {
-      const coeff = p.coefficient !== undefined ? p.coefficient : defaultCoeff;
-      const R = radialR(p.n, p.l, r, Z, a0, atomType);
-      sum += coeff * coeff * R * R;
+    // 预计算所有 R 值，避免重复计算
+    const R_values = new Float32Array(numOrbitals);
+    for (let i = 0; i < numOrbitals; i++) {
+      const p = paramsList[i];
+      R_values[i] = radialR(p.n, p.l, r, Z, a0, atomType);
     }
 
-    return r * r * sum;
+    let densitySum = 0;
+
+    for (let i = 0; i < numOrbitals; i++) {
+      const p1 = paramsList[i];
+      const c1 = p1.coefficient !== undefined ? p1.coefficient : defaultCoeff;
+
+      for (let j = 0; j < numOrbitals; j++) {
+        const p2 = paramsList[j];
+        const c2 = p2.coefficient !== undefined ? p2.coefficient : defaultCoeff;
+
+        // 检查角向部分是否正交
+        // 实球谐函数正交条件：l, m, type 均相同
+        // 注意：type (t) 可能是 undefined (m=0时), 需要处理
+        const theta1 = p1.angKey ? p1.angKey.t : '';
+        const theta2 = p2.angKey ? p2.angKey.t : '';
+
+        const isOrthogonal = (p1.angKey.l !== p2.angKey.l) ||
+          (p1.angKey.m !== p2.angKey.m) ||
+          (theta1 !== theta2);
+
+        if (!isOrthogonal) {
+          // 角向相同，积分结果为 1，贡献交叉项
+          densitySum += c1 * c2 * R_values[i] * R_values[j];
+        }
+        // 如果角向不同，积分结果为 0，交叉项消失
+      }
+    }
+
+    return r * r * densitySum;
   }
 
   function density3D_real(angKey, n, l, r, theta, phi, Z = 1, a0 = A0, atomType = 'H') {
@@ -1863,28 +1923,43 @@
       return 15 * n * n;
     }
 
-    // 计算加权平均 zeta（按系数绝对值加权）
-    let sumWeight = 0;
-    let sumZeta = 0;
-    let maxN = 1;
+    // 【优化】使用有效最小 Zeta（最慢衰减项）来估算半径
+    // 平均 Zeta 会被内层高 Zeta 项拉高，导致低估外层轨道大小
+    let minZeta = Infinity;
+    let maxN_atMinZeta = 1;
 
+    // 1. 找到对轨道外沿有实质贡献的最小 Zeta
+    // 忽略系数极小 (< 0.05 maxCoeff) 的长尾项，防止数值噪声干扰
+    let maxCoeff = 0;
     for (const term of basis) {
-      const weight = Math.abs(term.coeff);
-      sumWeight += weight;
-      sumZeta += weight * term.zeta;
-      if (term.nStar > maxN) maxN = term.nStar;
+      if (Math.abs(term.coeff) > maxCoeff) maxCoeff = Math.abs(term.coeff);
+    }
+    const threshold = maxCoeff * 0.05;
+
+    let found = false;
+    for (const term of basis) {
+      // 只考虑有实质贡献的项
+      if (Math.abs(term.coeff) > threshold) {
+        if (term.zeta < minZeta) {
+          minZeta = term.zeta;
+          maxN_atMinZeta = term.nStar;
+          found = true;
+        }
+      }
     }
 
-    if (sumWeight < 1e-10) {
-      return 15 * n * n;
+    // 兜底：如果没找到（不应该发生），使用第一项
+    if (!found) {
+      minZeta = basis[0].zeta;
+      maxN_atMinZeta = basis[0].nStar;
     }
 
-    const zetaAvg = sumZeta / sumWeight;
-
-    // STO 峰值半径 ≈ n / zeta
-    // 95% 等值面半径约为峰值半径的 2.5-3 倍
-    const rPeak = maxN / zetaAvg;
-    const r95 = rPeak * 3.0;
+    // STO 峰值半径 ≈ n* / zeta
+    // 95% 等值面通常延伸到峰值的 3-4 倍远处（取决于 exp(-zeta*r) 的衰减）
+    // 对于漫散轨道（小 zeta），需要更大的倍数
+    const rPeak = maxN_atMinZeta / minZeta;
+    const factor = 4.0;
+    const r95 = rPeak * factor;
 
     // 返回估算值，但设置合理的最小值
     return Math.max(2, r95);

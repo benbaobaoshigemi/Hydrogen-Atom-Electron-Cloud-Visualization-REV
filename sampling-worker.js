@@ -137,13 +137,40 @@ function slaterRadialR(basis, r) {
 // 归一化径向函数 R_nl(r)
 function radialR(n, l, r, Z = 1, a0 = A0, atomType = 'H') {
     // Strategy A: Slater Type Orbitals (STO)
-    if (atomType && atomType !== 'H' && self.SlaterBasis) {
+    // Strategy A: Slater Type Orbitals (STO)
+    if (atomType && atomType !== 'H' && (self.SlaterBasis || (typeof window !== 'undefined' && window.SlaterBasis))) {
         const orbitalKey = getOrbitalKey(n, l);
-        const atomData = self.SlaterBasis[atomType];
+        const slater = self.SlaterBasis || window.SlaterBasis;
+        const atomData = slater[atomType];
+
         if (atomData && atomData.orbitals && atomData.orbitals[orbitalKey]) {
-            // 【关键修复】Clementi-Roetti STO 基组的相位约定与氢原子解析解相反
-            // 对 STO 结果取负以保持相位一致性
-            return -slaterRadialR(atomData.orbitals[orbitalKey], r);
+            const basis = atomData.orbitals[orbitalKey];
+            const val = slaterRadialR(basis, r);
+
+            // 【智能相位校正】
+            // 目标：确保 STO 波函数在远核区域（大 r）的符号与氢原子解析解一致
+            // 氢原子解析解 R_nl(r) 在大 r 处的符号由 Laguerre 多项式的最高次项决定 -> (-1)^(n-l-1)
+            const analyticalSign = ((n - l - 1) % 2 === 0) ? 1 : -1;
+
+            // 寻找 STO 在大 r 处的主导项（zeta 最小的项，即衰减最慢的项）
+            let dominantTerm = basis[0];
+            for (let i = 1; i < basis.length; i++) {
+                const term = basis[i];
+                // 优先找 zeta 更小的
+                // 如果 zeta 相同（极少见），找 nStar 更大的（r 的幂次更高）
+                if (term.zeta < dominantTerm.zeta ||
+                    (Math.abs(term.zeta - dominantTerm.zeta) < 1e-9 && term.nStar > dominantTerm.nStar)) {
+                    dominantTerm = term;
+                }
+            }
+
+            const stoSign = Math.sign(dominantTerm.coeff);
+
+            // 如果符号不一致，则翻转 STO 结果
+            if (stoSign * analyticalSign < 0) {
+                return -val;
+            }
+            return val;
         }
     }
 
@@ -306,7 +333,7 @@ const _cdfCache = {};
  * 构建径向分布的累积分布函数表
  */
 function buildRadialCDF(n, l, numPoints = 2000, atomType = 'H') {
-    const key = `${atomType}_${n}_${l}`;
+    const key = `${n}_${l}_${atomType}`;
     if (_cdfCache[key]) {
         return _cdfCache[key];
     }
@@ -1094,16 +1121,41 @@ function buildHybridRadialCDF(paramsList, numPoints = 2000, atomType = 'H') {
         const r_prev = r[i - 1];
         const r_curr = r[i];
 
-        for (const p of paramsList) {
-            const coeff = p.coefficient !== undefined ? p.coefficient : defaultCoeff;
-            const c2 = coeff * coeff;
+        // 【数学严谨性修复】为支持非正交轨道组合（如 1s+2s），引入双重循环计算交叉项
+        // P(r) = r² * Σ_i Σ_j c_i c_j R_i R_j * ⟨Y_i|Y_j⟩
 
-            const R_prev = radialR(p.n, p.l, r_prev, 1, A0, atomType);
-            const R_curr = radialR(p.n, p.l, r_curr, 1, A0, atomType);
+        let densityPrev = 0;
+        let densityCurr = 0;
 
-            P_prev += c2 * r_prev * r_prev * R_prev * R_prev;
-            P_curr += c2 * r_curr * r_curr * R_curr * R_curr;
+        for (let j = 0; j < numOrbitals; j++) {
+            const p1 = paramsList[j];
+            const c1 = p1.coefficient !== undefined ? p1.coefficient : defaultCoeff;
+            const R1_prev = radialR(p1.n, p1.l, r_prev, 1, A0, atomType);
+            const R1_curr = radialR(p1.n, p1.l, r_curr, 1, A0, atomType);
+
+            for (let k = 0; k < numOrbitals; k++) {
+                const p2 = paramsList[k];
+                const c2 = p2.coefficient !== undefined ? p2.coefficient : defaultCoeff;
+
+                // 检查角向正交性
+                const theta1 = p1.angKey ? p1.angKey.t : '';
+                const theta2 = p2.angKey ? p2.angKey.t : '';
+                const isNonOrthogonal = (p1.angKey.l === p2.angKey.l) &&
+                    (p1.angKey.m === p2.angKey.m) &&
+                    (theta1 === theta2);
+
+                if (isNonOrthogonal) {
+                    const R2_prev = radialR(p2.n, p2.l, r_prev, 1, A0, atomType);
+                    const R2_curr = radialR(p2.n, p2.l, r_curr, 1, A0, atomType);
+
+                    densityPrev += c1 * c2 * R1_prev * R2_prev;
+                    densityCurr += c1 * c2 * R1_curr * R2_curr;
+                }
+            }
         }
+
+        P_prev += r_prev * r_prev * densityPrev;
+        P_curr += r_curr * r_curr * densityCurr;
 
         cumulative += (P_prev + P_curr) * dr / 2;
         cdf[i] = cumulative;

@@ -936,14 +936,18 @@ window.ElectronCloud.Visualization.updatePointColors = function () {
         }
 
         // 根据相位上色
-        if (psi >= 0) {
+        if (psi > 0) {
             colors[i3] = colorPos.r;
             colors[i3 + 1] = colorPos.g;
             colors[i3 + 2] = colorPos.b;
-        } else {
+        } else if (psi < 0) {
             colors[i3] = colorNeg.r;
             colors[i3 + 1] = colorNeg.g;
             colors[i3 + 2] = colorNeg.b;
+        } else {
+            colors[i3] = colorWhite.r;
+            colors[i3 + 1] = colorWhite.g;
+            colors[i3 + 2] = colorWhite.b;
         }
     }
 
@@ -1011,7 +1015,7 @@ window.ElectronCloud.Visualization.createContourMesh = function (group, baseRadi
 
     // Marching Cubes - 优化分辨率以兼顾性能和质量
     const bound = baseRadius * 1.3;
-    const resolution = 120; // 提升分辨率至 120
+    const resolution = 160; // 提升分辨率至 160 (原 120) 以增加线框细分度
     const result = window.MarchingCubes.run(calcPsi, { min: [-bound, -bound, -bound], max: [bound, bound, bound] }, resolution, isovalue);
 
     // 创建网格
