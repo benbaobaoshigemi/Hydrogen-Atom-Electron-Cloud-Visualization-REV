@@ -1053,6 +1053,8 @@ window.ElectronCloud.Visualization.createContourMesh = function (group, baseRadi
 window.ElectronCloud.Visualization.createContourOverlay = function () {
     const state = window.ElectronCloud.state;
     const group = new THREE.Group();
+    const ui = window.ElectronCloud.ui;
+    const constants = window.ElectronCloud.constants;
 
     if (!state.points) return group;
 
@@ -1068,10 +1070,147 @@ window.ElectronCloud.Visualization.createContourOverlay = function () {
     }
     const baseRadius = maxR > 0 ? maxR : 10;
 
-    // 创建 Marching Cubes 等值面
-    window.ElectronCloud.Visualization.createContourMesh(group, baseRadius);
+    // 检查是否为比照模式
+    const isCompareMode = ui && ui.compareToggle && ui.compareToggle.checked;
+
+    if (isCompareMode && state.compareMode && state.compareMode.activeSlots) {
+        // 比照模式：为每个slot创建独立的等值面，使用对应颜色
+        window.ElectronCloud.Visualization.createCompareContourMeshes(group, baseRadius);
+    } else {
+        // 其他模式：使用原有逻辑
+        window.ElectronCloud.Visualization.createContourMesh(group, baseRadius);
+    }
 
     return group;
+};
+
+/**
+ * 比照模式专用：为每个slot创建独立的等值面轮廓
+ * 每个slot使用对应的颜色（红/绿/蓝）
+ */
+window.ElectronCloud.Visualization.createCompareContourMeshes = function (group, baseRadius) {
+    const state = window.ElectronCloud.state;
+    const constants = window.ElectronCloud.constants;
+    const Hydrogen = window.Hydrogen;
+
+    const activeSlots = state.compareMode.activeSlots || [];
+    if (activeSlots.length === 0) return;
+
+    const compareColors = constants.compareColors || [
+        { name: 'red', value: [1, 0.2, 0.2] },
+        { name: 'green', value: [0.2, 1, 0.2] },
+        { name: 'blue', value: [0.2, 0.2, 1] }
+    ];
+
+    // 为每个slot创建等值面
+    for (let slotIdx = 0; slotIdx < activeSlots.length; slotIdx++) {
+        const slot = activeSlots[slotIdx];
+        if (!slot || !slot.orbital) continue;
+
+        // 检查该slot是否可见
+        if (state.compareMode.slotVisibility &&
+            state.compareMode.slotVisibility[slot.slotIndex] === false) {
+            continue;
+        }
+
+        const orbitalKey = slot.orbital;
+        const atomType = slot.atom || 'H';
+        const orbitalParams = Hydrogen.orbitalParamsFromKey(orbitalKey);
+
+        if (!orbitalParams) continue;
+
+        // 获取该slot的颜色
+        const colorValue = compareColors[slotIdx % compareColors.length].value;
+        const slotColor = { r: colorValue[0], g: colorValue[1], b: colorValue[2] };
+
+        // 为该slot的波函数计算等值面
+        function calcPsi(x, y, z) {
+            const r = Math.sqrt(x * x + y * y + z * z);
+            if (r < 1e-10) return 0;
+            const theta = Math.acos(Math.max(-1, Math.min(1, z / r)));
+            const phi = Math.atan2(y, x);
+
+            return Hydrogen.radialWavefunction(orbitalParams.n, orbitalParams.l, r, 1, 1, atomType) *
+                Hydrogen.realYlm_value(orbitalParams.angKey.l, orbitalParams.angKey.m,
+                    orbitalParams.angKey.t, theta, phi);
+        }
+
+        // 收集该slot的采样点来计算isovalue
+        const psiValues = [];
+        const positions = state.points.geometry.attributes.position.array;
+
+        // 使用pointOrbitalIndices找到属于该slot的点
+        for (let i = 0; i < state.pointCount; i++) {
+            // 检查该点是否属于当前slot
+            if (state.pointOrbitalIndices && state.pointOrbitalIndices[i] === slotIdx) {
+                const i3 = i * 3;
+                const psi = calcPsi(positions[i3], positions[i3 + 1], positions[i3 + 2]);
+                psiValues.push(Math.abs(psi));
+            }
+        }
+
+        // 如果没有足够的点，使用全局采样估算
+        if (psiValues.length < 50) {
+            // 使用球面均匀采样
+            const sampleCount = 1000;
+            const radius = baseRadius * 0.7;
+            for (let s = 0; s < sampleCount; s++) {
+                const theta = Math.acos(2 * Math.random() - 1);
+                const phi = 2 * Math.PI * Math.random();
+                const r = Math.random() * radius;
+                const x = r * Math.sin(theta) * Math.cos(phi);
+                const y = r * Math.cos(theta);
+                const z = r * Math.sin(theta) * Math.sin(phi);
+                const psi = calcPsi(x, y, z);
+                psiValues.push(Math.abs(psi));
+            }
+        }
+
+        psiValues.sort((a, b) => b - a);
+        const isovalue = psiValues[Math.floor(psiValues.length * 0.95)] || 0.0001;
+
+        // Marching Cubes
+        const bound = baseRadius * 1.3;
+        const resolution = 100; // 略低分辨率以提升性能（多个轮廓）
+
+        const result = window.MarchingCubes.run(
+            calcPsi,
+            { min: [-bound, -bound, -bound], max: [bound, bound, bound] },
+            resolution,
+            isovalue
+        );
+
+        // 创建网格
+        function addLobeMeshes(triangles, color) {
+            if (triangles.length < 9) return;
+            const components = window.MarchingCubes.separate(triangles);
+
+            for (const comp of components) {
+                if (comp.length < 9) continue;
+                const geom = window.MarchingCubes.toGeometry(comp);
+                const colors = new Float32Array(comp.length * 3);
+                for (let i = 0; i < comp.length; i++) {
+                    colors[i * 3] = color.r;
+                    colors[i * 3 + 1] = color.g;
+                    colors[i * 3 + 2] = color.b;
+                }
+                geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+                const mesh = new THREE.Mesh(geom, new THREE.MeshBasicMaterial({
+                    vertexColors: true, transparent: true, opacity: 0.55,
+                    side: THREE.DoubleSide, wireframe: true, wireframeLinewidth: 1.5
+                }));
+                // 【关键新增】标记该网格属于哪个slot，以便后续单独控制可见性
+                mesh.userData.slotIndex = slotIdx;
+                mesh.layers.set(1);
+                group.add(mesh);
+            }
+        }
+
+        // 使用slot对应颜色
+        addLobeMeshes(result.positive, slotColor);
+        addLobeMeshes(result.negative, slotColor);
+    }
 };
 
 window.ElectronCloud.Visualization.updateContourOverlay = function () {
@@ -1327,6 +1466,30 @@ window.ElectronCloud.Visualization.createHybridContourOverlays = function () {
         }
         return null;
     }
+};
+
+/**
+ * 更新比照模式下特定slot的等值面可见性
+ * @param {number} slotIndex - 插槽索引
+ * @param {boolean} visible - 是否可见
+ */
+window.ElectronCloud.Visualization.updateCompareContourVisibility = function (slotIndex, visible) {
+    const state = window.ElectronCloud.state;
+    // 检查轮廓层是否存在
+    if (!state.contourOverlay) return;
+
+    // 遍历所有子网格
+    state.contourOverlay.traverse((child) => {
+        // 检查是否有 slotIndex 标记
+        if (child.userData && child.userData.slotIndex !== undefined) {
+            if (child.userData.slotIndex === slotIndex) {
+                child.visible = visible;
+            }
+        }
+    });
+
+    // 请求重绘
+    state.sceneNeedsUpdate = true;
 };
 
 /**

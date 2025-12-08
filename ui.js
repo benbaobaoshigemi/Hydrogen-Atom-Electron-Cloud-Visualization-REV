@@ -35,7 +35,7 @@ window.ElectronCloud.UI.init = function () {
     }
 
     // 动态填充原子列表（必须在 initCustomSelects 之前调用，否则自定义UI会包含旧选项）
-    populateAtomList();
+    // populateAtomList(); // DISABLED: Using hardcoded list in HTML now
 
     // 初始化通用自定义下拉框
     if (window.ElectronCloud.UI.initCustomSelects) {
@@ -1499,6 +1499,8 @@ window.ElectronCloud.UI.updateAngular3DToggleState = function () {
             angular3dLabel.style.cursor = 'not-allowed';
             angular3dLabel.title = '对比模式下不可用';
         }
+        // 【关键修复】比照模式下虽然禁用了角向形状，但必须更新（启用）轨道轮廓开关
+        window.ElectronCloud.UI.updateContour3DToggleState();
         return;
     }
 
@@ -1566,16 +1568,7 @@ window.ElectronCloud.UI.updateContour3DToggleState = function () {
 
     const contour3dLabel = document.querySelector('label[for="contour-3d-toggle"]');
 
-    // 在对比模式下禁用
-    if (ui.compareToggle && ui.compareToggle.checked) {
-        contour3dToggle.disabled = true;
-        if (contour3dLabel) {
-            contour3dLabel.style.opacity = '0.5';
-            contour3dLabel.style.cursor = 'not-allowed';
-            contour3dLabel.title = '对比模式下不可用';
-        }
-        return;
-    }
+    // 【修改】比照模式下不禁用轨道轮廓，允许多色显示
 
     // 在采样过程中禁用
     if (state.isDrawing && state.pointCount < state.MAX_POINTS) {
@@ -3113,8 +3106,12 @@ window.ElectronCloud.UI.initModeSwitcher = function () {
 
             switch (mode) {
                 case 'single':
+                    // 如果从比照模式切换过来，必须触发事件以清理比照模式的UI状态
+                    if (compareToggle && compareToggle.checked) {
+                        compareToggle.checked = false;
+                        compareToggle.dispatchEvent(new Event('change'));
+                    }
                     if (multiselectToggle) multiselectToggle.checked = false;
-                    if (compareToggle) compareToggle.checked = false;
                     // 移除杂化模式的类和状态
                     if (controlPanel) controlPanel.classList.remove('hybrid-active');
                     state.isHybridMode = false;
@@ -3124,8 +3121,12 @@ window.ElectronCloud.UI.initModeSwitcher = function () {
                     multiselectToggle?.dispatchEvent(new Event('change'));
                     break;
                 case 'multi':
+                    // 如果从比照模式切换过来，必须触发事件以清理比照模式的UI状态
+                    if (compareToggle && compareToggle.checked) {
+                        compareToggle.checked = false;
+                        compareToggle.dispatchEvent(new Event('change'));
+                    }
                     if (multiselectToggle) multiselectToggle.checked = true;
-                    if (compareToggle) compareToggle.checked = false;
                     // 移除杂化模式的类和状态
                     if (controlPanel) controlPanel.classList.remove('hybrid-active');
                     state.isHybridMode = false;
@@ -3144,9 +3145,13 @@ window.ElectronCloud.UI.initModeSwitcher = function () {
                     compareToggle?.dispatchEvent(new Event('change'));
                     break;
                 case 'hybrid':
+                    // 如果从比照模式切换过来，必须触发事件以清理比照模式的UI状态
+                    if (compareToggle && compareToggle.checked) {
+                        compareToggle.checked = false;
+                        compareToggle.dispatchEvent(new Event('change'));
+                    }
                     // 杂化模式 - 复用多选模式的样式和禁用规则
                     if (multiselectToggle) multiselectToggle.checked = true;
-                    if (compareToggle) compareToggle.checked = false;
                     // 添加杂化模式的类（用于区分）
                     if (controlPanel) controlPanel.classList.add('hybrid-active');
                     // 【核心】设置杂化模式状态
@@ -3659,6 +3664,9 @@ window.ElectronCloud.UI.onCompareOrbitalChange = function (event) {
     // 更新state中的配置
     state.compareMode.slots[index].orbital = orbitalValue;
 
+    // 【新增】轨道→原子约束：更新该行原子可用性
+    window.ElectronCloud.UI.updateCompareAtomAvailability(index);
+
     // 同步到主选择器
     window.ElectronCloud.UI.syncCompareToMainSelect();
 
@@ -3715,6 +3723,51 @@ window.ElectronCloud.UI.updateCompareOrbitalAvailability = function (index) {
         option.disabled = !enabled;
         option.style.color = enabled ? '' : 'rgba(255,255,255,0.3)';
     });
+
+    // 【新增】同步更新自定义下拉框UI
+    window.ElectronCloud.UI.updateCompareOrbitalCustomSelect(orbitalSelect);
+
+    // 如果当前选中的轨道被禁用，自动切换到"无"
+    if (orbitalSelect.selectedIndex > 0 && orbitalSelect.options[orbitalSelect.selectedIndex].disabled) {
+        orbitalSelect.value = '';
+        orbitalSelect.dispatchEvent(new Event('change'));
+    }
+};
+
+/**
+ * 更新比照模式轨道选择器的自定义下拉框UI
+ */
+window.ElectronCloud.UI.updateCompareOrbitalCustomSelect = function (orbitalSelect) {
+    const container = orbitalSelect.nextElementSibling;
+    if (!container || !container.classList.contains('custom-select-container')) return;
+
+    const customOptions = container.querySelector('.custom-select-options');
+    if (!customOptions) return;
+
+    Array.from(orbitalSelect.options).forEach((option, index) => {
+        const customOption = customOptions.children[index];
+        if (!customOption) return;
+
+        if (option.disabled) {
+            customOption.classList.add('disabled');
+            customOption.style.opacity = '0.3';
+            customOption.style.pointerEvents = 'none';
+            customOption.title = '该原子不支持此轨道';
+        } else {
+            customOption.classList.remove('disabled');
+            customOption.style.opacity = '1';
+            customOption.style.pointerEvents = 'auto';
+            customOption.title = '';
+        }
+    });
+
+    // 更新触发器文本
+    if (orbitalSelect.selectedIndex >= 0) {
+        const trigger = container.querySelector('.custom-select-trigger');
+        if (trigger) {
+            trigger.textContent = orbitalSelect.options[orbitalSelect.selectedIndex].text;
+        }
+    }
 };
 
 /**
@@ -3907,5 +3960,97 @@ window.ElectronCloud.UI.toggleCompareOrbitalSelectors = function (show) {
     // 比照模式下隐藏"已选"计数标签
     if (multiselectLabel) {
         multiselectLabel.style.display = show ? 'none' : '';
+    }
+};
+
+// ==================== 比照模式双向约束 ====================
+
+/**
+ * 【比照模式专用】根据选中的轨道更新原子可用性
+ * @param {number} index - 比照模式slot索引 (0, 1, 2)
+ */
+window.ElectronCloud.UI.updateCompareAtomAvailability = function (index) {
+    const orbitalSelect = document.querySelector(`.compare-orbital-select[data-index="${index}"]`);
+    const atomSelect = document.querySelector(`.compare-atom-select[data-index="${index}"]`);
+    if (!orbitalSelect || !atomSelect) return;
+
+    const orbitalValue = orbitalSelect.value;
+
+    // 如果没有选择轨道（"无"），则所有原子都可用
+    if (!orbitalValue) {
+        Array.from(atomSelect.options).forEach(option => {
+            option.disabled = false;
+            option.style.color = '';
+        });
+        // 更新自定义下拉框
+        window.ElectronCloud.UI.updateCompareAtomCustomSelect(atomSelect);
+        return;
+    }
+
+    // 提取轨道类型 (2px -> 2p, 4d_xy -> 4d)
+    const match = orbitalValue.match(/^(\d+[spdfg])/);
+    const orbitalKey = match ? match[1] : orbitalValue;
+
+    Array.from(atomSelect.options).forEach(option => {
+        const atomSymbol = option.value;
+        let enabled = true;
+
+        if (atomSymbol === 'H') {
+            // 氢原子：所有轨道可用
+            enabled = true;
+        } else {
+            const atomData = window.SlaterBasis ? window.SlaterBasis[atomSymbol] : null;
+            if (!atomData || !atomData.orbitals || !atomData.orbitals[orbitalKey]) {
+                enabled = false;
+            }
+        }
+
+        option.disabled = !enabled;
+        option.style.color = enabled ? '' : 'rgba(255,255,255,0.3)';
+    });
+
+    // 更新自定义下拉框UI
+    window.ElectronCloud.UI.updateCompareAtomCustomSelect(atomSelect);
+
+    // 如果当前选中的原子被禁用，自动切换到H
+    if (atomSelect.selectedIndex >= 0 && atomSelect.options[atomSelect.selectedIndex].disabled) {
+        atomSelect.value = 'H';
+        atomSelect.dispatchEvent(new Event('change'));
+    }
+};
+
+/**
+ * 更新比照模式原子选择器的自定义下拉框UI
+ */
+window.ElectronCloud.UI.updateCompareAtomCustomSelect = function (atomSelect) {
+    const container = atomSelect.nextElementSibling;
+    if (!container || !container.classList.contains('custom-select-container')) return;
+
+    const customOptions = container.querySelector('.custom-select-options');
+    if (!customOptions) return;
+
+    Array.from(atomSelect.options).forEach((option, index) => {
+        const customOption = customOptions.children[index];
+        if (!customOption) return;
+
+        if (option.disabled) {
+            customOption.classList.add('disabled');
+            customOption.style.opacity = '0.3';
+            customOption.style.pointerEvents = 'none';
+            customOption.title = '该原子不支持选中的轨道';
+        } else {
+            customOption.classList.remove('disabled');
+            customOption.style.opacity = '1';
+            customOption.style.pointerEvents = 'auto';
+            customOption.title = '';
+        }
+    });
+
+    // 更新触发器文本
+    if (atomSelect.selectedIndex >= 0) {
+        const trigger = container.querySelector('.custom-select-trigger');
+        if (trigger) {
+            trigger.textContent = atomSelect.options[atomSelect.selectedIndex].text;
+        }
     }
 };

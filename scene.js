@@ -965,15 +965,25 @@ window.ElectronCloud.Scene.animate = function () {
             window.ElectronCloud.Sampling.performRollingUpdate();
 
             // 【新增】定期刷新图表（每200ms）
+            // 【修复】比照模式和多选模式下，图表更新由 sampling.js 的 performRollingUpdate 统一处理
+            // 这里只处理单轨模式和杂化模式的图表更新，避免重复调用导致抖动
             const now = performance.now();
+            const ui = window.ElectronCloud.ui;
+            const isCompareMode = ui.compareToggle && ui.compareToggle.checked;
+            const isMultiselectMode = ui.multiselectToggle && ui.multiselectToggle.checked;
+
             if (now - (state.rollingMode.lastUpdateTime || 0) > 200) {
-                // 更新图表数据源
-                if (window.ElectronCloud.Orbital.updateBackgroundChartData) {
-                    window.ElectronCloud.Orbital.updateBackgroundChartData();
-                }
-                // 重绘图表
-                if (window.ElectronCloud.Orbital.drawProbabilityChart) {
-                    window.ElectronCloud.Orbital.drawProbabilityChart(true);
+                // 比照模式和多选模式使用 orbitalSamplesMap，由 sampling.js 负责更新
+                // 这里只更新单轨模式和杂化模式的图表
+                if (!isCompareMode && !isMultiselectMode) {
+                    // 更新图表数据源（仅适用于非比照/多选模式）
+                    if (window.ElectronCloud.Orbital.updateBackgroundChartData) {
+                        window.ElectronCloud.Orbital.updateBackgroundChartData();
+                    }
+                    // 重绘图表
+                    if (window.ElectronCloud.Orbital.drawProbabilityChart) {
+                        window.ElectronCloud.Orbital.drawProbabilityChart(true);
+                    }
                 }
                 state.rollingMode.lastUpdateTime = now;
             }
@@ -1209,9 +1219,13 @@ window.ElectronCloud.Scene.onSamplingCompleted = function () {
         hybridContourToggle.disabled = false;
     }
 
-    // 【新增】采样完成，重新启用相位显示开关
+    // 【新增】采样完成，重新启用相位显示开关（比照模式下保持禁用）
     const phaseToggle = document.getElementById('phase-toggle');
-    if (phaseToggle) {
+    // 注意：compareToggle已在第1165行定义，直接使用
+    const isCompareMode = compareToggle && compareToggle.checked;
+
+    if (phaseToggle && !isCompareMode) {
+        // 非比照模式：启用相位开关
         phaseToggle.disabled = false;
         const phaseBox = document.getElementById('phase-box');
         if (phaseBox) {
@@ -1219,6 +1233,7 @@ window.ElectronCloud.Scene.onSamplingCompleted = function () {
             phaseBox.title = '';
         }
     }
+    // 注意：比照模式下相位开关保持在onCompareToggle中设置的禁用状态
 };
 
 // 清除场景中的点云

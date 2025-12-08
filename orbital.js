@@ -740,8 +740,27 @@ window.ElectronCloud.Orbital.drawProbabilityChart = function (final = true) {
     const isCompareMode = ui.compareToggle && ui.compareToggle.checked;
 
     if (isCompareMode && Object.keys(state.orbitalSamplesMap).length > 0) {
-        console.log('使用对比模式散点图渲染，轨道数量:', Object.keys(state.orbitalSamplesMap).length);
-        DataPanel.renderChartCompare(state.orbitalSamplesMap, type);
+        let chartData = state.orbitalSamplesMap;
+
+        // 【性能优化】如果是滚动生成过程中的动态更新（!final），只使用最近的数据切片
+        // 避免全量重绘导致卡顿（全量数据可能包含百万个点）
+        if (!final) {
+            chartData = {};
+            // 只取每条轨道最近的 20000 个点，足够显示分布趋势且极快
+            const SLICE_SIZE = 20000;
+            for (const key in state.orbitalSamplesMap) {
+                const samples = state.orbitalSamplesMap[key];
+                if (samples.length > SLICE_SIZE) {
+                    chartData[key] = samples.slice(-SLICE_SIZE);
+                } else {
+                    chartData[key] = samples;
+                }
+            }
+        } else {
+            console.log('使用对比模式散点图渲染，轨道数量:', Object.keys(state.orbitalSamplesMap).length);
+        }
+
+        DataPanel.renderChartCompare(chartData, type);
         return;
     }
 
@@ -897,4 +916,9 @@ window.ElectronCloud.Orbital.updateCompareSlotVisibility = function (orbitalInde
 
     state.points.geometry.attributes.position.needsUpdate = true;
     console.log(`orbitalIndex=${orbitalIndex} 可见性已更新为: ${visible}, 匹配${matchCount}个点`);
+
+    // 【关键新增】同步更新对应的等值面轮廓可见性
+    if (window.ElectronCloud.Visualization && window.ElectronCloud.Visualization.updateCompareContourVisibility) {
+        window.ElectronCloud.Visualization.updateCompareContourVisibility(orbitalIndex, visible);
+    }
 };

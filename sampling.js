@@ -1218,7 +1218,15 @@ window.ElectronCloud.Sampling.performRollingUpdate = function () {
     const isIndependentMode = !isHybridMode && (isCompareMode || isMultiselectMode);
 
     // 获取轨道参数列表
-    let paramsList = state.currentOrbitals.map(k => Hydrogen.orbitalParamsFromKey(k)).filter(Boolean);
+    // 获取轨道参数列表
+    // 【修复】移除全局 filter(Boolean)，保持索引一致性（特别是对比模式）
+    let paramsList = state.currentOrbitals.map(k => Hydrogen.orbitalParamsFromKey(k));
+
+    // 杂化模式需要纯净列表
+    if (isHybridMode) {
+        paramsList = paramsList.filter(Boolean);
+    }
+
     if (!paramsList.length) return;
 
     const now = performance.now();
@@ -1253,8 +1261,17 @@ window.ElectronCloud.Sampling.performRollingUpdate = function () {
                     state.hybridOrbitalVisibility[checkOrbitalIdx] === false) {
                     continue; // 跳过，不替换隐藏轨道的点
                 }
+            } else if (isCompareMode && state.compareMode && state.compareMode.activeSlots) {
+                // 【比照模式修复】使用slotVisibility检查
+                // checkOrbitalIdx 是 Worker/paramsList 中的索引，对应 activeSlots 的索引
+                const slotConfig = state.compareMode.activeSlots[checkOrbitalIdx];
+                if (slotConfig && state.compareMode.slotVisibility) {
+                    if (state.compareMode.slotVisibility[slotConfig.slotIndex] === false) {
+                        continue; // 跳过，不替换隐藏轨道的点
+                    }
+                }
             } else if (isIndependentMode && state.orbitalVisibility && state.currentOrbitals) {
-                // 独立模式：检查该点所属的轨道是否被隐藏
+                // 独立模式（多选）：检查该点所属的轨道是否被隐藏
                 const checkKey = state.currentOrbitals[checkOrbitalIdx];
                 if (checkKey && state.orbitalVisibility[checkKey] === false) {
                     continue; // 跳过，不替换隐藏轨道的点
@@ -1332,8 +1349,20 @@ window.ElectronCloud.Sampling.performRollingUpdate = function () {
             orbitalKey = state.currentOrbital;
         } else {
             // 【普通采样】
-            // 【关键修复】独立模式下也只为可见轨道生成新点
-            if (isIndependentMode) {
+            if (isCompareMode && state.compareMode && state.compareMode.activeSlots) {
+                // 【比照模式】只为可见的 slot 生成新点
+                const visibleSlotIndices = [];
+                state.compareMode.activeSlots.forEach((slot, idx) => {
+                    const slotVis = state.compareMode.slotVisibility || {};
+                    if (slotVis[slot.slotIndex] !== false) {
+                        visibleSlotIndices.push(idx); // 保存 activeSlots 的索引
+                    }
+                });
+
+                if (visibleSlotIndices.length === 0) continue;
+                orbitalIndex = visibleSlotIndices[Math.floor(Math.random() * visibleSlotIndices.length)];
+            } else if (isIndependentMode) {
+                // 【多选模式】独立模式下也只为可见轨道生成新点
                 // 收集可见轨道
                 const visibleOrbitals = [];
                 for (let o = 0; o < paramsList.length; o++) {
@@ -1352,9 +1381,18 @@ window.ElectronCloud.Sampling.performRollingUpdate = function () {
             }
 
             const p = paramsList[orbitalIndex];
+            if (!p) continue; // 【修复】防止 undefined 参数导致的 crash
+
             orbitalKey = state.currentOrbitals[orbitalIndex];
 
-            const result = Hydrogen.importanceSample(p.n, p.l, p.angKey, state.samplingBoundary, currentAtom);
+            // 【关键修复】比照模式下使用正确的原子类型
+            let atomType = currentAtom;
+            if (isCompareMode && state.compareMode && state.compareMode.activeSlots) {
+                const slot = state.compareMode.activeSlots[orbitalIndex];
+                if (slot) atomType = slot.atom || 'H';
+            }
+
+            const result = Hydrogen.importanceSample(p.n, p.l, p.angKey, state.samplingBoundary, atomType);
             if (!result || !result.accepted) continue;
             ({ x, y, z, r, theta, phi } = result);
         }
@@ -1383,6 +1421,22 @@ window.ElectronCloud.Sampling.performRollingUpdate = function () {
         if (isIndependentMode && state.orbitalPointsMap && orbitalKey) {
             if (!state.orbitalPointsMap[orbitalKey]) state.orbitalPointsMap[orbitalKey] = [];
             state.orbitalPointsMap[orbitalKey].push(targetIndex);
+
+            // 【新增】比照模式动态图表更新的数据采集
+            if (isCompareMode || isMultiselectMode) {
+                let chartDataKey = orbitalKey;
+                // 比照模式下需要使用复合键，与 handleWorkerResult 保持一致
+                if (isCompareMode && state.compareMode && state.compareMode.activeSlots) {
+                    const slot = state.compareMode.activeSlots[orbitalIndex];
+                    if (slot) {
+                        chartDataKey = `${slot.atom}_${orbitalKey}_slot${slot.slotIndex}`;
+                    }
+                }
+
+                if (!state.orbitalSamplesMap[chartDataKey]) state.orbitalSamplesMap[chartDataKey] = [];
+                state.orbitalSamplesMap[chartDataKey].push({ r, theta, probability: 0, orbitalIndex });
+
+            }
         }
 
         if (isHybridMode && state.hybridOrbitalPointsMap) {
@@ -1493,6 +1547,26 @@ window.ElectronCloud.Sampling.performRollingUpdate = function () {
         }
         if (state.angularSamples && targetIndex < state.angularSamples.length) {
             state.angularSamples[targetIndex] = theta;
+        }
+    }
+
+    // 【新增】图表动态更新 (仅在比照模式或多选模式且开启滚动生成时)
+    if ((isCompareMode || isMultiselectMode) && state.rollingMode && state.rollingMode.enabled) {
+        // 每200ms更新一次图表，与其他模式保持一致
+        if (!state.lastChartUpdate || now - state.lastChartUpdate > 200) {
+            // 清理过大的样本数据（移至循环外以优化性能）
+            if (state.orbitalSamplesMap) {
+                for (const key in state.orbitalSamplesMap) {
+                    if (state.orbitalSamplesMap[key].length > 200000) {
+                        state.orbitalSamplesMap[key] = state.orbitalSamplesMap[key].slice(-100000);
+                    }
+                }
+            }
+            state.lastChartUpdate = now;
+            if (window.ElectronCloud.Orbital.drawProbabilityChart) {
+                // false 表示非 final 更新，可能触发轻量级渲染
+                window.ElectronCloud.Orbital.drawProbabilityChart(false);
+            }
         }
     }
 
