@@ -268,8 +268,13 @@ window.ElectronCloud.UI.init = function () {
         window.ElectronCloud.UI.onAxesSizeChange({ target: window.ElectronCloud.ui.axesSizeRange });
     }
 
-    // 初始化比照模式选择器
-    window.ElectronCloud.UI.initCompareOrbitalSelectors();
+    // 【性能优化】比照模式选择器采用懒加载，首次切换到比照模式时才初始化
+    // 避免启动时同步创建312个自定义DOM节点阻塞主线程
+    // window.ElectronCloud.UI.initCompareOrbitalSelectors(); // LAZY LOAD
+    window.ElectronCloud.UI._compareSelectorsInitialized = false;
+
+    // 【性能优化】使用事件委托统一处理所有自定义下拉框的关闭
+    document.addEventListener('click', window.ElectronCloud.UI._handleGlobalClickForCustomSelects);
 
     // 视图面板折叠逻辑
     const viewPanel = document.getElementById('view-panel');
@@ -2167,6 +2172,13 @@ window.ElectronCloud.UI.onCompareToggle = function () {
     }
 
     if (isCompare) {
+        // 【性能优化】懒加载：首次进入比照模式时才初始化选择器
+        if (!window.ElectronCloud.UI._compareSelectorsInitialized) {
+            console.log('[性能优化] 懒加载初始化比照模式选择器...');
+            window.ElectronCloud.UI.initCompareOrbitalSelectors();
+            window.ElectronCloud.UI._compareSelectorsInitialized = true;
+        }
+
         // 禁用渲染相位
         if (phaseToggle) {
             phaseToggle.disabled = true;
@@ -2179,8 +2191,11 @@ window.ElectronCloud.UI.onCompareToggle = function () {
             phaseBox.classList.remove('active');
         }
 
-        // 禁用显示开关功能，避免造成bug
+        // 禁用3D角向形状显示，避免造成bug
         window.ElectronCloud.UI.disableAngular3DToggle();
+
+        // 【新增】比照模式下启用角向分布曲线选项（与径向分布同步支持）
+        window.ElectronCloud.UI.enableAngularPlotOption();
 
         // 【新增】比照模式下禁用实验面板的原子选择
         const atomSubmenu = document.getElementById('atom-submenu');
@@ -2231,8 +2246,11 @@ window.ElectronCloud.UI.onCompareToggle = function () {
             phaseBox.classList.remove('disabled');
         }
 
-        // 重新启用显示开关功能
+        // 重新启用3D角向形状显示
         window.ElectronCloud.UI.enableAngular3DToggle();
+
+        // 【新增】退出比照模式时恢复角向分布曲线选项
+        window.ElectronCloud.UI.enableAngularPlotOption();
 
         // 【新增】退出比照模式时恢复实验面板的原子选择
         const atomSubmenu = document.getElementById('atom-submenu');
@@ -3115,6 +3133,19 @@ window.ElectronCloud.UI.updateCustomListVisualsWithVisibility = function () {
 
 // ========== 通用自定义下拉框逻辑 ==========
 
+/**
+ * 【性能优化】全局事件委托处理所有自定义下拉框的关闭
+ * 替代原来每个createCustomSelect都注册一个全局click事件的做法
+ */
+window.ElectronCloud.UI._handleGlobalClickForCustomSelects = function (e) {
+    // 如果点击的不是自定义下拉框内部，关闭所有打开的下拉框
+    if (!e.target.closest('.custom-select-container')) {
+        document.querySelectorAll('.custom-select-container.open').forEach(el => {
+            el.classList.remove('open');
+        });
+    }
+};
+
 window.ElectronCloud.UI.initCustomSelects = function () {
     // 查找所有非 orbital-select 的 select 元素（包括 max-points-select）
     // 【重要】排除比照模式选择器，它们由 initCompareOrbitalSelectors 单独处理
@@ -3143,30 +3174,41 @@ window.ElectronCloud.UI.createCustomSelect = function (select) {
     const optionsList = document.createElement('div');
     optionsList.className = 'custom-select-options';
 
-    // 填充选项
-    Array.from(select.options).forEach((option, index) => {
+    // 【性能优化】使用 DocumentFragment 批量创建DOM，减少重排重绘
+    const fragment = document.createDocumentFragment();
+    const options = select.options;
+    const optionsLen = options.length;
+
+    for (let index = 0; index < optionsLen; index++) {
+        const option = options[index];
         const customOption = document.createElement('div');
         customOption.className = 'custom-option';
         if (option.selected) customOption.classList.add('selected');
         customOption.textContent = option.text;
         customOption.dataset.value = option.value;
+        customOption.dataset.index = index; // 存储索引用于事件委托
+        fragment.appendChild(customOption);
+    }
+    optionsList.appendChild(fragment);
 
-        customOption.addEventListener('click', (e) => {
-            e.stopPropagation();
-            // 更新原生 select
-            select.selectedIndex = index;
-            select.dispatchEvent(new Event('change'));
+    // 【性能优化】使用事件委托处理选项点击，而非每个选项单独监听
+    optionsList.addEventListener('click', (e) => {
+        const customOption = e.target.closest('.custom-option');
+        if (!customOption) return;
+        e.stopPropagation();
 
-            // 更新 UI
-            trigger.textContent = option.text;
-            container.classList.remove('open');
+        const index = parseInt(customOption.dataset.index, 10);
+        // 更新原生 select
+        select.selectedIndex = index;
+        select.dispatchEvent(new Event('change'));
 
-            // 更新选中状态样式
-            Array.from(optionsList.children).forEach(child => child.classList.remove('selected'));
-            customOption.classList.add('selected');
-        });
+        // 更新 UI
+        trigger.textContent = select.options[index].text;
+        container.classList.remove('open');
 
-        optionsList.appendChild(customOption);
+        // 更新选中状态样式
+        Array.from(optionsList.children).forEach(child => child.classList.remove('selected'));
+        customOption.classList.add('selected');
     });
 
     // 触发器点击事件
@@ -3190,12 +3232,8 @@ window.ElectronCloud.UI.createCustomSelect = function (select) {
     // 插入到原生 select 后面
     select.parentNode.insertBefore(container, select.nextSibling);
 
-    // 点击外部关闭
-    document.addEventListener('click', (e) => {
-        if (!container.contains(e.target)) {
-            container.classList.remove('open');
-        }
-    });
+    // 【性能优化】移除此处的全局click事件注册，改由init()中统一事件委托处理
+    // 避免每个select都注册一个全局监听器
 };
 
 // ==================== 顶部模式切换栏 ====================
