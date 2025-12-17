@@ -8,6 +8,7 @@
     isResized: false, // 标记是否被用户手动调整过大小
     waveHidden: true, // 记录波函数曲线的隐藏状态（默认隐藏）
     angularTheoryHidden: false, // 记录角向理论曲线的隐藏状态
+    compareTheoryHidden: true, // 记录比照模式理论曲线的隐藏状态（默认隐藏）
   };
 
   function init() {
@@ -644,6 +645,18 @@
       return;
     }
 
+    // 仅在当前已经是折线图（比照模式）时捕获状态
+    // 避免从柱状图（其他模式）继承可见性状态，确保"默认关闭"生效
+    if (state.chart && state.chart.config && state.chart.config.type === 'line') {
+      const chart = state.chart;
+      if (chart.data && chart.data.datasets) {
+        const theoryIndex = chart.data.datasets.findIndex(ds => ds.label && ds.label.includes('理论'));
+        if (theoryIndex !== -1) {
+          state.compareTheoryHidden = !chart.isDatasetVisible(theoryIndex);
+        }
+      }
+    }
+
     // 如果当前不是折线图，销毁后重新创建
     if (state.chart && state.chart.config && state.chart.config.type !== 'line') {
       console.log('销毁旧图表，创建折线图'); // 调试信息
@@ -867,6 +880,47 @@
         fill: false, // 不填充
         tension: 0.1 // 轻微平滑
       });
+
+      // 【新增】为该轨道添加理论曲线（虚线）
+      const orbitalParams = window.Hydrogen?.orbitalParamsFromKey(slotConfig.orbital);
+      if (orbitalParams) {
+        const atomType = slotConfig.atom || 'H';
+        let theoryData;
+
+        if (type === 'radial') {
+          // 径向理论曲线
+          theoryData = centers.map(r => ({
+            x: r,
+            y: window.Hydrogen.radialPDF(orbitalParams.n, orbitalParams.l, r, 1, 1, atomType)
+          }));
+        } else if (type === 'angular') {
+          // θ 角向理论曲线
+          theoryData = centers.map(theta => ({
+            x: theta,
+            y: window.Hydrogen.angularPDF_Theta(orbitalParams.l, orbitalParams.angKey.m, theta)
+          }));
+        } else {
+          // φ 方位角理论曲线
+          theoryData = centers.map(phi => ({
+            x: phi,
+            y: window.Hydrogen.angularPDF_Phi(orbitalParams.angKey.m, orbitalParams.angKey.t, phi)
+          }));
+        }
+
+        datasets.push({
+          label: `${displayName} 理论`,
+          data: theoryData,
+          borderColor: `rgba(${colorValues.join(',')}, 0.9)`,
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          pointRadius: 0,
+          pointHoverRadius: 0,
+          fill: false,
+          tension: 0.2,
+          borderDash: [6, 3], // 虚线样式
+          hidden: state.compareTheoryHidden // 应用隐藏状态和默认值
+        });
+      }
     }
 
     state.chart.data.datasets = datasets;
