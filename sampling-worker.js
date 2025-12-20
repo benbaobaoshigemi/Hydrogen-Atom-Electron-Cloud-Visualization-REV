@@ -11,6 +11,283 @@ importScripts('slater_basis.js');
 const A0 = 1; // Bohr radius unit
 const PI = Math.PI;
 
+// ==================== Thomson + SVD 杂化系数算法 ====================
+
+const THOMSON_CACHE_WORKER = {};
+
+function optimizeThomsonWorker(n, maxIter = 200, lr = 0.1) {
+    if (THOMSON_CACHE_WORKER[n]) return THOMSON_CACHE_WORKER[n];
+
+    if (n === 1) {
+        THOMSON_CACHE_WORKER[n] = [[0, 0, 1]];
+        return THOMSON_CACHE_WORKER[n];
+    }
+    if (n === 2) {
+        THOMSON_CACHE_WORKER[n] = [[0, 0, 1], [0, 0, -1]];
+        return THOMSON_CACHE_WORKER[n];
+    }
+
+    let points = [];
+    const goldenRatio = (1 + Math.sqrt(5)) / 2;
+    for (let i = 0; i < n; i++) {
+        const y = 1 - (i / (n - 1)) * 2;
+        const radius = Math.sqrt(1 - y * y);
+        const theta = 2 * Math.PI * i / goldenRatio;
+        points.push([Math.cos(theta) * radius, y, Math.sin(theta) * radius]);
+    }
+
+    for (let iter = 0; iter < maxIter; iter++) {
+        const gradients = points.map(() => [0, 0, 0]);
+        for (let i = 0; i < n; i++) {
+            for (let j = i + 1; j < n; j++) {
+                const dx = points[i][0] - points[j][0];
+                const dy = points[i][1] - points[j][1];
+                const dz = points[i][2] - points[j][2];
+                const dist2 = dx * dx + dy * dy + dz * dz;
+                const dist = Math.sqrt(dist2);
+                if (dist > 1e-10) {
+                    const factor = 1 / (dist2 * dist);
+                    gradients[i][0] -= factor * dx;
+                    gradients[i][1] -= factor * dy;
+                    gradients[i][2] -= factor * dz;
+                    gradients[j][0] += factor * dx;
+                    gradients[j][1] += factor * dy;
+                    gradients[j][2] += factor * dz;
+                }
+            }
+        }
+        for (let i = 0; i < n; i++) {
+            points[i][0] -= lr * gradients[i][0];
+            points[i][1] -= lr * gradients[i][1];
+            points[i][2] -= lr * gradients[i][2];
+            const norm = Math.sqrt(points[i][0] ** 2 + points[i][1] ** 2 + points[i][2] ** 2);
+            if (norm > 1e-10) {
+                points[i][0] /= norm;
+                points[i][1] /= norm;
+                points[i][2] /= norm;
+            }
+        }
+        if (iter > 50) lr *= 0.995;
+    }
+    THOMSON_CACHE_WORKER[n] = points;
+    return points;
+}
+
+function buildDirectionMatrixWorker(directions, orbitalParams) {
+    const nDirs = directions.length;
+    const nOrbitals = orbitalParams.length;
+    const A = [];
+    for (let i = 0; i < nDirs; i++) {
+        const d = directions[i];
+        const norm = Math.sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        const x = d[0] / norm, y = d[1] / norm, z = d[2] / norm;
+        const row = [];
+        for (let j = 0; j < nOrbitals; j++) {
+            const { l, m, t } = orbitalParams[j].angKey || { l: 0, m: 0, t: 'c' };
+            let val = 0;
+            if (l === 0) {
+                val = 1 / Math.sqrt(4 * PI);
+            } else if (l === 1) {
+                const norm_p = Math.sqrt(3 / (4 * PI));
+                if (m === 0) val = norm_p * z;
+                else if (t === 'c') val = norm_p * x;
+                else val = norm_p * y;
+            } else if (l === 2) {
+                if (m === 0) {
+                    val = Math.sqrt(5 / (16 * PI)) * (3 * z * z - 1);
+                } else if (m === 1) {
+                    if (t === 'c') val = Math.sqrt(15 / (4 * PI)) * x * z;
+                    else val = Math.sqrt(15 / (4 * PI)) * y * z;
+                } else if (m === 2) {
+                    if (t === 'c') val = Math.sqrt(15 / (16 * PI)) * (x * x - y * y);
+                    else val = Math.sqrt(15 / (4 * PI)) * x * y;
+                }
+            }
+            row.push(val);
+        }
+        A.push(row);
+    }
+    return A;
+}
+
+function jacobiSVDWorker(A) {
+    const m = A.length;
+    const n = A[0].length;
+    let U = A.map(row => [...row]);
+    let V = [];
+    for (let i = 0; i < n; i++) {
+        const row = new Array(n).fill(0);
+        row[i] = 1;
+        V.push(row);
+    }
+    const EPSILON = 1e-15;
+    const MAX_ITER = 50;
+    for (let iter = 0; iter < MAX_ITER; iter++) {
+        let maxError = 0;
+        for (let i = 0; i < n - 1; i++) {
+            for (let j = i + 1; j < n; j++) {
+                let alpha = 0, beta = 0, gamma = 0;
+                for (let k = 0; k < m; k++) {
+                    alpha += U[k][i] * U[k][i];
+                    beta += U[k][j] * U[k][j];
+                    gamma += U[k][i] * U[k][j];
+                }
+                maxError = Math.max(maxError, Math.abs(gamma) / Math.sqrt(alpha * beta + EPSILON));
+                if (Math.abs(gamma) < EPSILON) continue;
+                let zeta = (beta - alpha) / (2 * gamma);
+                let t = Math.sign(zeta) / (Math.abs(zeta) + Math.sqrt(1 + zeta * zeta));
+                let c = 1 / Math.sqrt(1 + t * t);
+                let s = c * t;
+                for (let k = 0; k < m; k++) {
+                    let t1 = U[k][i], t2 = U[k][j];
+                    U[k][i] = c * t1 - s * t2;
+                    U[k][j] = s * t1 + c * t2;
+                }
+                for (let k = 0; k < n; k++) {
+                    let t1 = V[k][i], t2 = V[k][j];
+                    V[k][i] = c * t1 - s * t2;
+                    V[k][j] = s * t1 + c * t2;
+                }
+            }
+        }
+        if (maxError < 1e-10) break;
+    }
+    const S = new Array(n).fill(0);
+    for (let i = 0; i < n; i++) {
+        let sum = 0;
+        for (let k = 0; k < m; k++) sum += U[k][i] * U[k][i];
+        S[i] = Math.sqrt(sum);
+        if (S[i] > EPSILON) {
+            for (let k = 0; k < m; k++) U[k][i] /= S[i];
+        }
+    }
+    return { U, S, V };
+}
+
+function matMulWorker(A, B) {
+    const m = A.length, n = A[0].length, p = B[0].length;
+    const C = [];
+    for (let i = 0; i < m; i++) {
+        const row = new Array(p).fill(0);
+        for (let j = 0; j < p; j++) {
+            for (let k = 0; k < n; k++) row[j] += A[i][k] * B[k][j];
+        }
+        C.push(row);
+    }
+    return C;
+}
+
+function matTransposeWorker(A) {
+    const m = A.length, n = A[0].length;
+    const AT = [];
+    for (let i = 0; i < n; i++) {
+        const row = new Array(m).fill(0);
+        for (let j = 0; j < m; j++) row[j] = A[j][i];
+        AT.push(row);
+    }
+    return AT;
+}
+
+function sortOrbitalsForHybridizationWorker(paramsList) {
+    if (!paramsList) return [];
+    return [...paramsList].sort((a, b) => {
+        if (a.l !== b.l) return a.l - b.l;
+        if (a.n !== b.n) return a.n - b.n;
+        if (a.l === 1) {
+            const score = (p) => {
+                if (p.angKey.m === 1 && p.angKey.t === 'c') return 1;
+                if (p.angKey.m === 1 && p.angKey.t === 's') return 2;
+                if (p.angKey.m === 0) return 3;
+                return 4;
+            };
+            return score(a) - score(b);
+        }
+        if (a.l === 2) {
+            const score = (p) => {
+                if (p.angKey.m === 2 && p.angKey.t === 'c') return 1;
+                if (p.angKey.m === 0) return 2;
+                return 3 + p.angKey.m;
+            };
+            return score(a) - score(b);
+        }
+        return 0;
+    });
+}
+
+const HYBRID_COEFF_CACHE_WORKER = {};
+
+// 根据轨道组合生成约束方向
+function generateConstrainedDirectionsWorker(orbitalParams) {
+    const n = orbitalParams.length;
+
+    const hasS = orbitalParams.some(p => p.l === 0);
+    const pOrbitals = orbitalParams.filter(p => p.l === 1);
+    const dOrbitals = orbitalParams.filter(p => p.l === 2);
+
+    const hasPx = pOrbitals.some(p => p.angKey.m === 1 && p.angKey.t === 'c');
+    const hasPy = pOrbitals.some(p => p.angKey.m === 1 && p.angKey.t === 's');
+    const hasPz = pOrbitals.some(p => p.angKey.m === 0);
+
+    const hasDz2 = dOrbitals.some(p => p.angKey.m === 0);
+    const hasDx2y2 = dOrbitals.some(p => p.angKey.m === 2 && p.angKey.t === 'c');
+
+    // sp
+    if (n === 2 && hasS && pOrbitals.length === 1) {
+        if (hasPz) return [[0, 0, 1], [0, 0, -1]];
+        if (hasPx) return [[1, 0, 0], [-1, 0, 0]];
+        if (hasPy) return [[0, 1, 0], [0, -1, 0]];
+    }
+
+    // sp2
+    if (n === 3 && hasS && pOrbitals.length === 2) {
+        if (hasPx && hasPy) return [[1, 0, 0], [-0.5, Math.sqrt(3) / 2, 0], [-0.5, -Math.sqrt(3) / 2, 0]];
+        if (hasPx && hasPz) return [[1, 0, 0], [-0.5, 0, Math.sqrt(3) / 2], [-0.5, 0, -Math.sqrt(3) / 2]];
+        if (hasPy && hasPz) return [[0, 1, 0], [0, -0.5, Math.sqrt(3) / 2], [0, -0.5, -Math.sqrt(3) / 2]];
+    }
+
+    // sp3
+    if (n === 4 && hasS && pOrbitals.length === 3 && hasPx && hasPy && hasPz && dOrbitals.length === 0) {
+        const a = 1 / Math.sqrt(3);
+        return [[a, a, a], [a, -a, -a], [-a, a, -a], [-a, -a, a]];
+    }
+
+    // sp3d
+    if (n === 5 && hasS && hasPx && hasPy && hasPz && hasDz2 && !hasDx2y2) {
+        return [[0, 0, 1], [0, 0, -1], [1, 0, 0], [-0.5, Math.sqrt(3) / 2, 0], [-0.5, -Math.sqrt(3) / 2, 0]];
+    }
+
+    // sp3d2
+    if (n === 6 && hasS && hasPx && hasPy && hasPz && hasDz2 && hasDx2y2) {
+        return [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+    }
+
+    return optimizeThomsonWorker(n);
+}
+
+function getHybridCoefficientsWorker(orbitalParams) {
+    if (!orbitalParams || orbitalParams.length === 0) return null;
+
+    // 排序轨道
+    const sortedParams = sortOrbitalsForHybridizationWorker(orbitalParams);
+    const n = sortedParams.length;
+
+    // 缓存键
+    const cacheKey = sortedParams.map(p => `${p.n}_${p.l}_${p.angKey.m}_${p.angKey.t}`).join('|');
+    if (HYBRID_COEFF_CACHE_WORKER[cacheKey]) {
+        return { coeffMatrix: HYBRID_COEFF_CACHE_WORKER[cacheKey], sortedParams };
+    }
+
+    // 【核心修复】使用约束方向
+    const directions = generateConstrainedDirectionsWorker(sortedParams);
+    const A = buildDirectionMatrixWorker(directions, sortedParams);
+    const { U, V } = jacobiSVDWorker(A);
+    const VT = matTransposeWorker(V);
+    const Q = matMulWorker(U, VT);
+
+    HYBRID_COEFF_CACHE_WORKER[cacheKey] = Q;
+    return { coeffMatrix: Q, sortedParams };
+}
+
 // 阶乘表（预计算）
 const FACT = (() => {
     const f = [1];
@@ -96,6 +373,7 @@ function realYlm_abs2(l, m, type, theta, phi) {
 
 // 实球谐函数（值）
 // Chemistry Convention: Positive lobes align with positive axes
+// 【关键修复】抵消 Condon-Shortley 相位，与 physics.js 保持同步
 function realYlm_value(l, m, type, theta, phi) {
     if (m === 0) {
         const y = Ylm_complex(l, 0, theta, phi);
@@ -104,10 +382,13 @@ function realYlm_value(l, m, type, theta, phi) {
     const mm = Math.abs(m);
     const y = Ylm_complex(l, mm, theta, phi);
 
+    // 【修复】抵消 CS 相位：对于奇数 m，翻转符号
+    const csPhaseCorrection = (mm % 2 === 1) ? -1 : 1;
+
     if (type === 'c') {
-        return Math.SQRT2 * y.re;
+        return csPhaseCorrection * Math.SQRT2 * y.re;
     } else {
-        return Math.SQRT2 * y.im;
+        return csPhaseCorrection * Math.SQRT2 * y.im;
     }
 }
 
@@ -1301,13 +1582,35 @@ function performHybridSampling(paramsList, samplingBoundary, maxAttempts, target
     let farthestDistance = 0;
     let attempts = 0;
 
-    const defaultCoeff = 1.0 / Math.sqrt(paramsList.length);
+    // 【关键修复】使用 Thomson + SVD 算法计算杂化系数
+    const hybridResult = getHybridCoefficientsWorker(paramsList);
+    if (!hybridResult) {
+        console.error("Worker: Failed to compute hybrid coefficients");
+        return { points, samples, farthestDistance, attempts };
+    }
+
+    const { coeffMatrix, sortedParams } = hybridResult;
+    const numOrbitals = sortedParams.length;
+
+    // 轮流采样每条杂化轨道（Round-Robin）
+    let hybridIndex = 0;
 
     // 尝试使用高效采样方法
     while (attempts < maxAttempts && points.length < targetPoints) {
         attempts++;
 
-        const result = hybridPreciseSample(paramsList, samplingBoundary, atomType);
+        // 选择当前杂化轨道的系数
+        const k = hybridIndex % numOrbitals;
+        hybridIndex++;
+        const coeffs = coeffMatrix[k];
+
+        // 将系数注入到排序后的参数列表
+        const paramsWithCoeffs = sortedParams.map((p, i) => ({
+            ...p,
+            coefficient: coeffs[i]
+        }));
+
+        const result = hybridPreciseSample(paramsWithCoeffs, samplingBoundary, atomType);
 
         if (!result || !result.accepted) continue;
 

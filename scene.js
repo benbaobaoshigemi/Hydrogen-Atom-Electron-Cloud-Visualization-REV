@@ -405,12 +405,16 @@ window.ElectronCloud.Scene.animate = function () {
     if (state.heartbeat && state.heartbeat.enabled && state.bloomPass) {
         const frequencyScale = 0.3 + (state.heartbeat.frequency / 100) * 1.4; // 0.3-1.7
 
+        // 【关键修复】同步获取缩放系数
+        const scaleFactor = window.ElectronCloud.UI.getOrbitalScaleFactor ? window.ElectronCloud.UI.getOrbitalScaleFactor() : 1.0;
+
         if (state.heartbeat.mode === 'starry') {
             // 星空模式：每个点独立随机闪烁，像星海一样
             state.heartbeat.phase += 0.06 * frequencyScale; // 原来0.02，现在翻3倍
 
             // 基础bloom强度 - 使用心跳模式的值的较高倍数，降低到原来的80%
-            const maxStrength = (state.heartbeat.maxBrightness || 200) / 100 * 1.5 * 2.5 * 0.8;
+            // 应用 scaleFactor 缩放调节范围
+            const maxStrength = (state.heartbeat.maxBrightness || 200) / 100 * 1.5 * 2.5 * 0.8 * scaleFactor;
             state.bloomPass.strength = maxStrength * 0.6; // 基础bloom
 
             // 更新每个点的亮度（通过临时修改颜色实现）
@@ -517,7 +521,8 @@ window.ElectronCloud.Scene.animate = function () {
             // 最大亮度调整：100 + (n-100)*0.1
             const rawBrightness = state.heartbeat.maxBrightness || 200;
             const adjustedBrightness = 100 + (rawBrightness - 100) * 0.1;
-            const maxStrength = adjustedBrightness / 100 * 1.5 * 1.5;
+            // 应用 scaleFactor 缩放调节范围
+            const maxStrength = (adjustedBrightness / 100) * 1.5 * 1.5 * scaleFactor;
             state.bloomPass.strength = breathWave * maxStrength;
 
             const minOpacity = 0.25;
@@ -534,7 +539,8 @@ window.ElectronCloud.Scene.animate = function () {
             // 最大亮度调整：100 + (n-100)*0.1
             const rawBrightness = state.heartbeat.maxBrightness || 200;
             const adjustedBrightness = 100 + (rawBrightness - 100) * 0.1;
-            const maxStrength = adjustedBrightness / 100 * 1.5 * 1.5;
+            // 应用 scaleFactor 缩放调节范围
+            const maxStrength = (adjustedBrightness / 100) * 1.5 * 1.5 * scaleFactor;
             state.bloomPass.strength = maxStrength * 0.7;
 
             if (state.points && state.points.geometry) {
@@ -633,7 +639,8 @@ window.ElectronCloud.Scene.animate = function () {
             // 最大亮度调整：100 + (n-100)*0.1
             const rawBrightness = state.heartbeat.maxBrightness || 200;
             const adjustedBrightness = 100 + (rawBrightness - 100) * 0.1;
-            const maxStrength = adjustedBrightness / 100 * 1.5 * 1.5;
+            // 应用 scaleFactor 缩放调节范围
+            const maxStrength = (adjustedBrightness / 100) * 1.5 * 1.5 * scaleFactor;
             state.bloomPass.strength = maxStrength * 0.9;
 
             if (state.points && state.points.geometry) {
@@ -705,7 +712,7 @@ window.ElectronCloud.Scene.animate = function () {
                             // 获取杂化系数矩阵
                             let coeffMatrix = null;
                             if (isHybridMode && Hydrogen.getHybridCoefficients) {
-                                coeffMatrix = Hydrogen.getHybridCoefficients(state.waveOrbitalParams.length);
+                                coeffMatrix = Hydrogen.getHybridCoefficients(state.waveOrbitalParams.length, state.waveOrbitalParams);
                             }
 
                             // 第一步：计算每个点的密度
@@ -1096,40 +1103,11 @@ window.ElectronCloud.Scene.animate = function () {
     }
 
     // 根据辉光状态选择渲染方式
+    // 【关键修复】所有对象统一通过 composer 渲染，避免第二次渲染覆盖 Bloom 效果
     if (state.bloomEnabled && state.composer) {
-        // 先隐藏坐标轴（不参与bloom）
-        const axesWasVisible = state.customAxes ? state.customAxes.visible : false;
-        const axisHelperWasVisible = state.autoRotate.axisHelper ? state.autoRotate.axisHelper.visible : false;
-
-        if (state.customAxes) state.customAxes.visible = false;
-        if (state.autoRotate.axisHelper) state.autoRotate.axisHelper.visible = false;
-
-        // 隐藏点云，只做bloom渲染
-        const pointsWasVisible = state.points ? state.points.visible : false;
-        const angularWasVisible = state.angularOverlay ? state.angularOverlay.visible : false;
-
-        // 渲染bloom效果（只有点云参与）
+        // 坐标轴、点云、轨道轮廓全部参与 Bloom 渲染
+        // 坐标轴本身颜色不够亮，不会产生明显辉光
         state.composer.render();
-
-        // 恢复坐标轴可见性
-        if (state.customAxes) state.customAxes.visible = axesWasVisible;
-        if (state.autoRotate.axisHelper) state.autoRotate.axisHelper.visible = axisHelperWasVisible;
-
-        // 单独渲染坐标轴（无bloom，叠加在上面）
-        if (axesWasVisible || axisHelperWasVisible) {
-            // 临时隐藏点云，只渲染坐标轴
-            if (state.points) state.points.visible = false;
-            if (state.angularOverlay) state.angularOverlay.visible = false;
-
-            state.renderer.autoClear = false;
-            state.renderer.clearDepth();
-            state.renderer.render(state.scene, state.camera);
-            state.renderer.autoClear = true;
-
-            // 恢复点云可见性
-            if (state.points) state.points.visible = pointsWasVisible;
-            if (state.angularOverlay) state.angularOverlay.visible = angularWasVisible;
-        }
     } else {
         state.renderer.render(state.scene, state.camera);
     }
@@ -1217,6 +1195,40 @@ window.ElectronCloud.Scene.onSamplingCompleted = function () {
     const hybridContourToggle = document.getElementById('hybrid-contour-toggle');
     if (hybridContourToggle) {
         hybridContourToggle.disabled = false;
+    }
+
+    // 【性能优化】杂化模式下，采样完成后立即预计算等值面并缓存
+    // 这样用户开启开关时可以即刻显示，无需等待
+    if (state.isHybridMode && window.ElectronCloud.Visualization.createHybridContourOverlays) {
+        console.log('开始预计算杂化轨道等值面...');
+
+        // 创建占位 Group 并启动 Worker 异步计算
+        state.hybridContourOverlays = window.ElectronCloud.Visualization.createHybridContourOverlays();
+
+        // 将预计算的等值面添加到场景（但初始不可见）
+        for (let i = 0; i < state.hybridContourOverlays.length; i++) {
+            const overlay = state.hybridContourOverlays[i];
+            if (!overlay) continue;
+
+            if (state.points) {
+                overlay.rotation.copy(state.points.rotation);
+                overlay.updateMatrix();
+            }
+            state.scene.add(overlay);
+            overlay.visible = false; // 初始隐藏，等用户开启开关
+        }
+
+        console.log('杂化轨道等值面预计算已启动（后台 Worker 进行中）');
+    } else if (!state.isHybridMode && window.ElectronCloud.Visualization.updateContourOverlay) {
+        // 【性能优化】普通模式也进行预计算
+        console.log('开始预计算普通轨道等值面...');
+        window.ElectronCloud.Visualization.updateContourOverlay();
+
+        // 预计算后隐藏，等用户开启开关
+        if (state.contourOverlay) {
+            state.contourOverlay.visible = false;
+        }
+        console.log('普通轨道等值面预计算完成');
     }
 
     // 【新增】采样完成，重新启用相位显示开关（比照模式下保持禁用）

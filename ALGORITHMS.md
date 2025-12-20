@@ -107,4 +107,62 @@ $$P(\mathbf{r}) = r^2 \left( \sum_i |c_i R_i Y_i|^2 + \sum_{i \neq j} c_i c_j R_
 
 ---
 
-*文档日期: 2024-12-08*
+## 6. 势能可视化计算
+
+**核心文件**: `physics.js`, `data_panel.js`, `orbital.js`
+
+为了展示电子-核库仑相互作用的径向分布，项目新增了势能积分和势能密度的可视化功能。
+
+### 6.1 物理公式
+
+电子-核库仑势能的径向分布：
+
+$$\frac{dE}{dr} = -\frac{Z}{r} \cdot P(r)$$
+
+其中 $P(r) = r^2 |R(r)|^2$ 是径向概率密度 (RDF)。
+
+累积势能积分：
+
+$$E(r) = \int_0^r \frac{dE}{dr'} dr' = -Z \int_0^r \frac{P(r')}{r'} dr'$$
+
+等价形式：
+
+$$E(r) = -Z \int_0^r r' \cdot |R(r')|^2 dr'$$
+
+### 6.2 理论曲线计算
+
+**函数**: `calculateCumulativePotential(n, l, Z, atomType, rMax, steps)`
+
+使用梯形法则进行数值积分：
+
+```javascript
+for (let i = 0; i < steps; i++) {
+    const r = (i + 1) * dr;
+    const R = radialR(n, l, r, Z, A0, atomType);
+    const currentValue = -Z * r * R * R;
+    const area = 0.5 * (prevValue + currentValue) * dr;
+    integral += area;
+}
+```
+
+### 6.3 采样数据转换
+
+**函数**: `transformHistogramToPotential(counts, edges, scaleFactor, Z)`
+
+将归一化的概率密度直方图转换为累积势能：
+
+1. 每个 bin 的概率：$P_i = \text{counts}[i] \times dr$
+2. 每个 bin 的势能贡献：$\Delta E_i = P_i \times (-Z/r_i)$
+3. 累积求和：$E_i = \sum_{j=0}^{i} \Delta E_j$
+
+### 6.4 对数尺度表示
+
+**dE/d(log r)**：乘以 $r$ 因子以适应对数横轴：
+
+$$\frac{dE}{d(\log r)} = r \cdot \frac{dE}{dr} = -Z \cdot P(r)$$
+
+这种表示方式使得内层电子（小 r）和外层电子（大 r）的势能贡献在图表上更加均衡可见。
+
+---
+
+*文档日期: 2025-12-18*

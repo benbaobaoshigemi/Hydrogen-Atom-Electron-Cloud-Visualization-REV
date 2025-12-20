@@ -126,6 +126,14 @@ window.ElectronCloud.Orbital.startDrawing = function () {
     state.points = new THREE.Points(geometry, material);
     state.scene.add(state.points);
 
+    // 【先验缩放】根据轨道尺寸设置辉光半径（渲染前应用）
+    // 以氢原子1s轨道为基准，多轨道时使用最小的轨道半径
+    if (state.bloomPass && window.ElectronCloud.UI.getBloomRadius) {
+        const scaledBloomRadius = window.ElectronCloud.UI.getBloomRadius();
+        state.bloomPass.radius = scaledBloomRadius;
+        console.log(`先验辉光缩放：Bloom半径设置为 ${scaledBloomRadius.toFixed(3)}`);
+    }
+
     // 【根本修复】统一重置所有场景对象的旋转状态
     // 这是解决"坐标歪斜"问题的关键步骤
     // 确保新的点云与坐标轴、角向叠加层三者旋转同步（都归零）
@@ -296,26 +304,37 @@ window.ElectronCloud.Orbital.clearDrawing = function () {
     // 更新全屏按钮状态
     window.ElectronCloud.UI.updateFullscreenBtnState();
 
-    // 【新增】清除绘制时，强制关闭并清除轨道轮廓（标准模式）
+    // 【修复】清除绘制时，真正销毁普通模式的等值面缓存
     const contour3dToggle = document.getElementById('contour-3d-toggle');
-    if (contour3dToggle && contour3dToggle.checked) {
+    if (contour3dToggle) {
         contour3dToggle.checked = false;
-        if (window.ElectronCloud.Visualization.updateContourOverlay) {
-            window.ElectronCloud.Visualization.updateContourOverlay();
-        }
+    }
+    if (state.contourOverlay) {
+        state.scene.remove(state.contourOverlay);
+        state.contourOverlay.traverse((child) => {
+            if (child.geometry) child.geometry.dispose();
+            if (child.material) child.material.dispose();
+        });
+        state.contourOverlay = null;
     }
 
-    // 【新增】清除绘制时，强制关闭并清除杂化轨道轮廓
-    // hybridContourToggle 在上文已定义
-    if (hybridContourToggle) {
-        if (hybridContourToggle.checked) {
-            hybridContourToggle.checked = false;
-            // 重要：必须触发事件处理函数，因为 cleanup 逻辑在里面
-            if (window.ElectronCloud.UI.onHybridContourToggle) {
-                window.ElectronCloud.UI.onHybridContourToggle({ target: hybridContourToggle });
-            }
+    // 【修复】清除绘制时，真正销毁杂化轨道轮廓缓存（因为轨道已改变）
+    // 不能只隐藏，必须销毁 geometry 和 material 释放内存
+    if (state.hybridContourOverlays && state.hybridContourOverlays.length > 0) {
+        for (const overlay of state.hybridContourOverlays) {
+            if (!overlay) continue;
+            state.scene.remove(overlay);
+            overlay.traverse((child) => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) child.material.dispose();
+            });
         }
-        // 确保开关重新启用
+        state.hybridContourOverlays = null; // 清空缓存
+    }
+
+    // 重置开关状态
+    if (hybridContourToggle) {
+        hybridContourToggle.checked = false;
         hybridContourToggle.disabled = false;
     }
 
@@ -962,8 +981,14 @@ window.ElectronCloud.Orbital.drawProbabilityChart = function (final = true) {
             const dr = hist.edges[1] - hist.edges[0];
             const scaleFactor = (dr > 0) ? (1.0 / dr) : 1.0;
             const expE = window.Hydrogen.transformHistogramToPotential(hist.counts, hist.edges, scaleFactor, Z);
-            // 使用 log10(r) 作为 x 轴，过滤 r <= 0 的点
-            const expPoints = centers.filter(r => r > 0).map((r, i) => ({ x: Math.log10(r), y: expE[i] }));
+            // 【关键修复】使用正确的索引映射：先收集有效索引，再用原始索引取y值
+            // 之前的bug：filter后map的i是新索引，与expE的原始索引不匹配，导致锯齿
+            const expPoints = [];
+            for (let i = 0; i < centers.length; i++) {
+                if (centers[i] > 0) {
+                    expPoints.push({ x: Math.log10(centers[i]), y: expE[i] });
+                }
+            }
 
             const rMax = centers[centers.length - 1];
             const numBins = centers.length;
@@ -976,7 +1001,13 @@ window.ElectronCloud.Orbital.drawProbabilityChart = function (final = true) {
                 for (let j = 0; j < numBins; j++) theoryE[j] /= paramsList.length;
             }
 
-            const theoryPoints = centers.filter(r => r > 0).map((r, i) => ({ x: Math.log10(r), y: theoryE[i] }));
+            // 【关键修复】理论曲线同样需要使用正确的索引
+            const theoryPoints = [];
+            for (let i = 0; i < centers.length; i++) {
+                if (centers[i] > 0) {
+                    theoryPoints.push({ x: Math.log10(centers[i]), y: theoryE[i] });
+                }
+            }
             DataPanel.renderChartPotentialLog({ points: expPoints }, { points: theoryPoints });
         } else {
             // dEdrLog: dE/d(log r) = r * dE/dr = -Z * P(r)
@@ -988,7 +1019,13 @@ window.ElectronCloud.Orbital.drawProbabilityChart = function (final = true) {
                 const Pr = hist.counts[i] || 0;
                 return -Z * Pr;
             });
-            const expPoints = centers.filter(r => r > 0).map((r, i) => ({ x: Math.log10(r), y: expDEdrLog[i] }));
+            // 【关键修复】使用正确的索引映射，避免filter后索引错位导致锯齿
+            const expPoints = [];
+            for (let i = 0; i < centers.length; i++) {
+                if (centers[i] > 0) {
+                    expPoints.push({ x: Math.log10(centers[i]), y: expDEdrLog[i] });
+                }
+            }
 
             // 理论 dE/d(log r) = -Z * radialPDF
             const numBins = centers.length;
@@ -1004,7 +1041,13 @@ window.ElectronCloud.Orbital.drawProbabilityChart = function (final = true) {
                 }
             }
 
-            const theoryPoints = centers.filter(r => r > 0).map((r, i) => ({ x: Math.log10(r), y: theoryDEdrLog[i] }));
+            // 【关键修复】理论曲线同样需要使用正确的索引
+            const theoryPoints = [];
+            for (let i = 0; i < centers.length; i++) {
+                if (centers[i] > 0) {
+                    theoryPoints.push({ x: Math.log10(centers[i]), y: theoryDEdrLog[i] });
+                }
+            }
             DataPanel.renderChartDEdrLog({ points: expPoints }, { points: theoryPoints });
         }
     } else if (type === 'angular') {

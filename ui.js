@@ -1493,6 +1493,7 @@ window.ElectronCloud.UI.onAngularOverlayToggle = function (event) {
 };
 
 // 处理95%等值面轮廓显隐（网格方案）
+// 【优化】使用缓存机制，切换时只修改 visible 属性
 window.ElectronCloud.UI.onContourOverlayToggle = function (event) {
     const state = window.ElectronCloud.state;
 
@@ -1510,17 +1511,17 @@ window.ElectronCloud.UI.onContourOverlayToggle = function (event) {
             return;
         }
 
-        // 使用网格等值面方案
-        window.ElectronCloud.Visualization.updateContourOverlay();
-    } else {
-        // 移除等值面网格
+        // 【优化】如果已有缓存，只切换 visible
         if (state.contourOverlay) {
-            state.scene.remove(state.contourOverlay);
-            state.contourOverlay.traverse((child) => {
-                if (child.geometry) child.geometry.dispose();
-                if (child.material) child.material.dispose();
-            });
-            state.contourOverlay = null;
+            state.contourOverlay.visible = true;
+        } else {
+            // 首次创建
+            window.ElectronCloud.Visualization.updateContourOverlay();
+        }
+    } else {
+        // 【优化】关闭时只设置 visible = false，不销毁
+        if (state.contourOverlay) {
+            state.contourOverlay.visible = false;
         }
     }
 };
@@ -1730,35 +1731,34 @@ window.ElectronCloud.UI.orbitalDistanceTable = {
 };
 
 // 获取点大小（根据轨道尺寸等比例缩放）
-// 以"最远距离 60"为基准（对应 n=2 轨道）
+// 以氢原子1s轨道（radius=15）为基准，多轨道时使用最小的轨道半径
 window.ElectronCloud.UI.getPointSize = function () {
     const ui = window.ElectronCloud.ui;
     const state = window.ElectronCloud.state;
     const Hydrogen = window.Hydrogen;
     const distanceTable = window.ElectronCloud.UI.orbitalDistanceTable;
 
-    if (!ui.sizeRange) return 0.06;
+    if (!ui.sizeRange) return 0.03;
 
-    // 滑条范围 1-200，默认值 50
-    // 原来的中等大小 0.06 对应滑条值 50
-    // 滑条值 100 对应原来的大小 0.12，滑条值 200 对应 0.24
+    // 滑条范围 2-400，默认值 100
+    // 基础大小 0.03 针对 1s 轨道校准（滑条 50 对应 0.03，滑条 100 对应 0.06）
+    // 提升基础倍率以确保大轨道在拉远视角下依然具有足够的视觉冲击力
     const sliderValue = parseInt(ui.sizeRange.value);
-    // 线性映射：1->0.012, 50->0.06, 100->0.12, 200->0.24
-    const baseSize = (sliderValue / 50) * 0.06;
+    const baseSize = (sliderValue / 50) * 0.03;
 
-    // 基准最远距离（对应 n=2 轨道）
-    const baseDistance = 60;
+    // 基准距离：氢原子1s轨道的95%等值面半径
+    const baseDistance = 15;
     const atomType = state.currentAtom || 'H';
 
-    // 获取当前选中轨道中最大的预估距离
-    let maxDistance = baseDistance; // 默认值
+    // 获取当前选中轨道中【最小】的预估距离
+    let minDistance = baseDistance; // 默认值（1s轨道）
 
     // 优先使用动态估算函数（支持非氢原子）
     if (Hydrogen && Hydrogen.estimateOrbitalRadius95 && state.currentOrbitals && state.currentOrbitals.length > 0) {
         for (const orbitalKey of state.currentOrbitals) {
             const dist = Hydrogen.estimateOrbitalRadius95(atomType, orbitalKey);
-            if (dist && dist > maxDistance) {
-                maxDistance = dist;
+            if (dist && dist < minDistance) {
+                minDistance = dist;
             }
         }
     }
@@ -1766,8 +1766,8 @@ window.ElectronCloud.UI.getPointSize = function () {
     else if (state.currentOrbitals && state.currentOrbitals.length > 0) {
         for (const orbitalKey of state.currentOrbitals) {
             const dist = distanceTable[orbitalKey];
-            if (dist && dist > maxDistance) {
-                maxDistance = dist;
+            if (dist && dist < minDistance) {
+                minDistance = dist;
             }
         }
     }
@@ -1777,23 +1777,73 @@ window.ElectronCloud.UI.getPointSize = function () {
         if (selectedOptions && selectedOptions.length > 0) {
             for (const option of selectedOptions) {
                 const dist = distanceTable[option.value];
-                if (dist && dist > maxDistance) {
-                    maxDistance = dist;
+                if (dist && dist < minDistance) {
+                    minDistance = dist;
                 }
             }
         } else if (ui.orbitalSelect.value) {
             // 单选模式
             const dist = distanceTable[ui.orbitalSelect.value];
             if (dist) {
-                maxDistance = dist;
+                minDistance = dist;
             }
         }
     }
 
     // 点大小与轨道尺寸等比例缩放
-    const scaleFactor = maxDistance / baseDistance;
+    const scaleFactor = minDistance / baseDistance;
     return baseSize * scaleFactor;
 };
+
+// 获取轨道缩放系数（基于最小轨道半径，以1s轨道为基准）
+// 此函数是先验的，用于渲染前计算点大小和辉光半径的缩放
+window.ElectronCloud.UI.getOrbitalScaleFactor = function () {
+    const state = window.ElectronCloud.state;
+    const Hydrogen = window.Hydrogen;
+    const distanceTable = window.ElectronCloud.UI.orbitalDistanceTable;
+
+    // 基准距离：氢原子1s轨道的95%等值面半径
+    const baseDistance = 15;
+    const atomType = state.currentAtom || 'H';
+
+    // 获取当前选中轨道中【最小】的预估距离
+    let minDistance = baseDistance; // 默认值（1s轨道）
+
+    // 优先使用动态估算函数（支持非氢原子）
+    if (Hydrogen && Hydrogen.estimateOrbitalRadius95 && state.currentOrbitals && state.currentOrbitals.length > 0) {
+        for (const orbitalKey of state.currentOrbitals) {
+            const dist = Hydrogen.estimateOrbitalRadius95(atomType, orbitalKey);
+            if (dist && dist < minDistance) {
+                minDistance = dist;
+            }
+        }
+    }
+    // 备用：从静态表获取（仅氢原子）
+    else if (state.currentOrbitals && state.currentOrbitals.length > 0) {
+        for (const orbitalKey of state.currentOrbitals) {
+            const dist = distanceTable[orbitalKey];
+            if (dist && dist < minDistance) {
+                minDistance = dist;
+            }
+        }
+    }
+
+    return minDistance / baseDistance;
+};
+
+// 获取辉光半径（根据轨道尺寸等比例缩放）
+// 以氢原子1s轨道为基准，多轨道时使用最小的轨道半径
+window.ElectronCloud.UI.getBloomRadius = function () {
+    // 基础 Bloom 半径（1s轨道的默认值）
+    const baseBloomRadius = 0.05;
+
+    // 获取轨道缩放系数
+    const scaleFactor = window.ElectronCloud.UI.getOrbitalScaleFactor();
+
+    // 辉光半径与轨道尺寸等比例缩放
+    return baseBloomRadius * scaleFactor;
+};
+
 
 window.ElectronCloud.UI.onSizeChange = function () {
     const state = window.ElectronCloud.state;
@@ -1841,10 +1891,17 @@ window.ElectronCloud.UI.onOpacityChange = function () {
         const glowProgress = (value - 50) / 50; // 0-1
         // 使用平方曲线: y = x^2，这样小值区间更精细
         const curvedProgress = glowProgress * glowProgress;
-        const bloomStrength = curvedProgress * 4.5; // 0-4.5
+
+        // 【关键修复】同步缩放辉光强度调节范围
+        const scaleFactor = window.ElectronCloud.UI.getOrbitalScaleFactor();
+        const bloomStrength = curvedProgress * 4.5 * scaleFactor;
 
         if (state.bloomPass) {
             state.bloomPass.strength = bloomStrength;
+            // 【同步缩放】辉光半径随轨道大小缩放
+            if (window.ElectronCloud.UI.getBloomRadius) {
+                state.bloomPass.radius = window.ElectronCloud.UI.getBloomRadius();
+            }
         }
         state.bloomEnabled = true;
         state.bloomStrength = bloomStrength;
@@ -3615,11 +3672,11 @@ window.ElectronCloud.UI.toggleHybridOrbitalVisibility = function (orbitalIndex) 
 
     state.points.geometry.attributes.position.needsUpdate = true;
 
-    // 【同步更新】如果轨道轮廓开关开启，需要更新等值面
+    // 【优化】直接同步等值面可见性，不触发重绘
     const hybridContourToggle = document.getElementById('hybrid-contour-toggle');
-    if (hybridContourToggle && hybridContourToggle.checked) {
-        // 触发等值面重新渲染
-        hybridContourToggle.dispatchEvent(new Event('change'));
+    if (hybridContourToggle && hybridContourToggle.checked &&
+        state.hybridContourOverlays && state.hybridContourOverlays[orbitalIndex]) {
+        state.hybridContourOverlays[orbitalIndex].visible = isVisible;
     }
 };
 
@@ -3647,6 +3704,7 @@ window.ElectronCloud.UI.resetHybridPanel = function () {
 
 /**
  * 杂化模式轨道轮廓开关处理
+ * 【优化】使用缓存机制，切换时只修改 visible 属性，不销毁重建
  */
 window.ElectronCloud.UI.onHybridContourToggle = function (e) {
     const state = window.ElectronCloud.state;
@@ -3654,34 +3712,44 @@ window.ElectronCloud.UI.onHybridContourToggle = function (e) {
 
     if (!state.isHybridMode) return;
 
-    // 清除现有轮廓
-    if (state.hybridContourOverlays) {
-        for (const overlay of state.hybridContourOverlays) {
-            if (!overlay) continue; // 【关键修复】跳过空对象
-            state.scene.remove(overlay);
-            overlay.traverse((child) => {
-                if (child.geometry) child.geometry.dispose();
-                if (child.material) child.material.dispose();
-            });
-        }
-        state.hybridContourOverlays = [];
-    }
-
     if (checked) {
-        // 创建独立的杂化轨道轮廓
-        if (window.ElectronCloud.Visualization && window.ElectronCloud.Visualization.createHybridContourOverlays) {
-            state.hybridContourOverlays = window.ElectronCloud.Visualization.createHybridContourOverlays();
-
-            // 添加到场景并同步旋转
-            for (const overlay of state.hybridContourOverlays) {
-                // 【关键修复】跳过空对象（隐藏的轨道）
+        // 开启等值面
+        if (state.hybridContourOverlays && state.hybridContourOverlays.length > 0) {
+            // 【优化】已有缓存，只切换 visible
+            for (let i = 0; i < state.hybridContourOverlays.length; i++) {
+                const overlay = state.hybridContourOverlays[i];
                 if (!overlay) continue;
+                // 根据轨道可见性状态决定是否显示
+                const isOrbitalVisible = state.hybridOrbitalVisibility[i] !== false;
+                overlay.visible = isOrbitalVisible;
+            }
+        } else {
+            // 首次创建
+            if (window.ElectronCloud.Visualization && window.ElectronCloud.Visualization.createHybridContourOverlays) {
+                state.hybridContourOverlays = window.ElectronCloud.Visualization.createHybridContourOverlays();
 
-                if (state.points) {
-                    overlay.rotation.copy(state.points.rotation);
-                    overlay.updateMatrix();
+                // 添加到场景并同步旋转
+                for (let i = 0; i < state.hybridContourOverlays.length; i++) {
+                    const overlay = state.hybridContourOverlays[i];
+                    if (!overlay) continue;
+
+                    if (state.points) {
+                        overlay.rotation.copy(state.points.rotation);
+                        overlay.updateMatrix();
+                    }
+                    state.scene.add(overlay);
+
+                    // 根据轨道可见性状态决定是否显示
+                    const isOrbitalVisible = state.hybridOrbitalVisibility[i] !== false;
+                    overlay.visible = isOrbitalVisible;
                 }
-                state.scene.add(overlay);
+            }
+        }
+    } else {
+        // 【优化】关闭时只设置 visible = false，不销毁
+        if (state.hybridContourOverlays) {
+            for (const overlay of state.hybridContourOverlays) {
+                if (overlay) overlay.visible = false;
             }
         }
     }

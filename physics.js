@@ -84,8 +84,10 @@
   // Chemistry Convention Enforced here:
   // p_x (l=1, m=1, c) ~ x
   // p_y (l=1, m=1, s) ~ y
-  // If Ylm_complex includes CS phase (-1)^m, it flips sign for m=1.
-  // We counteract or ignore CS phase to ensure p_x is positive at +x.
+  // 
+  // 【关键修复】抵消 Condon-Shortley 相位
+  // associatedLegendre 包含 (-1)^m 因子，对于奇数 m（如 p 轨道 m=1）会产生符号翻转
+  // 我们需要抵消这个相位，确保 p_x 在 +x 轴方向为正值
   function realYlm_value(l, m, type, theta, phi) {
     if (m === 0) {
       const y = Ylm_complex(l, 0, theta, phi);
@@ -94,10 +96,14 @@
     const mm = Math.abs(m);
     const y = Ylm_complex(l, mm, theta, phi);
 
+    // 【修复】抵消 CS 相位：对于奇数 m，翻转符号
+    // 这确保了化学约定：正瓣指向正轴
+    const csPhaseCorrection = (mm % 2 === 1) ? -1 : 1;
+
     if (type === 'c') {
-      return Math.SQRT2 * y.re;
+      return csPhaseCorrection * Math.SQRT2 * y.re;
     } else {
-      return Math.SQRT2 * y.im;
+      return csPhaseCorrection * Math.SQRT2 * y.im;
     }
   }
 
@@ -107,6 +113,77 @@
     const letter = subshells[l] || '';
     return n + letter;
   }
+
+  /**
+   * 基于 Slater 规则计算有效核电荷 Z_eff
+   * 
+   * Slater 屏蔽规则（简化版）：
+   * - 同组 (n, l) 电子：屏蔽常数 0.35（1s 为 0.30）
+   * - (n-1) 壳层：屏蔽常数 0.85（s/p→d）或 1.00（d/f）
+   * - 更内层壳层：屏蔽常数 1.00
+   * 
+   * @param {number} Z - 核电荷数
+   * @param {number} n - 主量子数
+   * @param {number} l - 角量子数
+   * @returns {number} 有效核电荷 Z_eff
+   */
+  function getEffectiveZ(Z, n, l) {
+    // 简化的电子构型屏蔽估计
+    // 基于 Slater 规则的近似实现
+
+    // 轨道分组：(1s), (2s,2p), (3s,3p), (3d), (4s,4p), (4d), (4f), ...
+    // 屏蔽常数：
+    // - 同组电子：0.35（1s 为 0.30）
+    // - 相邻 (n-1) 的 s/p：0.85
+    // - 更内层或 d/f：1.00
+
+    let shielding = 0;
+
+    // 1s 轨道
+    if (n === 1) {
+      // 另一个 1s 电子的屏蔽
+      shielding = (Z > 1) ? 0.30 : 0;
+    }
+    // 2s, 2p 轨道
+    else if (n === 2 && l <= 1) {
+      // 1s 完全屏蔽
+      shielding = 2 * 0.85;
+      // 同层电子（2s, 2p 共 8 个，减去自己）
+      const sameShell = Math.min(Z - 1, 8) - 2; // 减去 1s 的 2 个
+      if (sameShell > 0) shielding += sameShell * 0.35;
+    }
+    // 3s, 3p 轨道
+    else if (n === 3 && l <= 1) {
+      // 1s: 1.00, 2s2p: 0.85
+      shielding = 2 * 1.00 + 8 * 0.85;
+      const sameShell = Math.max(0, Math.min(Z - 10, 8) - 1);
+      shielding += sameShell * 0.35;
+    }
+    // 3d 轨道
+    else if (n === 3 && l === 2) {
+      // 1s, 2s2p: 1.00, 3s3p: 1.00（对 d 轨道屏蔽更强）
+      shielding = 2 * 1.00 + 8 * 1.00 + 8 * 1.00;
+      const sameShell = Math.max(0, Math.min(Z - 18, 10) - 1);
+      shielding += sameShell * 0.35;
+    }
+    // 4s, 4p 轨道
+    else if (n === 4 && l <= 1) {
+      // 内层完全屏蔽
+      shielding = 2 * 1.00 + 8 * 1.00 + 8 * 0.85 + 10 * 1.00;
+      const sameShell = Math.max(0, Math.min(Z - 28, 8) - 1);
+      shielding += sameShell * 0.35;
+    }
+    // 更高轨道的简化处理
+    else {
+      // 简单估计：内层电子数减去穿透效应补偿
+      const innerElectrons = 2 * n * (n - 1); // 粗略估计
+      shielding = Math.min(innerElectrons, Z - 1) * 0.85;
+    }
+
+    const Zeff = Math.max(1, Z - shielding);
+    return Zeff;
+  }
+
 
   // Slater Type Orbital Radial Function
   function slaterRadialR(basis, r) {
@@ -312,7 +389,7 @@
     if (!paramsList || paramsList.length === 0) return 0;
 
     const numOrbitals = paramsList.length;
-    const coeffMatrix = getHybridCoefficients(numOrbitals);
+    const coeffMatrix = getHybridCoefficients(numOrbitals, paramsList);
 
     let totalDensity = 0;
 
@@ -381,97 +458,380 @@
   /**
    * 获取杂化轨道的系数矩阵
    * 
-   * 【物理原理】
-   * N 个原子轨道可以组合成 N 个杂化轨道
-   * 每个杂化轨道是原子轨道的正交线性组合
+   * 【核心算法：Thomson 方向优化】
+   * 使用 Thomson 问题（球面电荷排斥）找到 N 个最优分布的方向，
+   * 然后用几何优化计算杂化系数，使杂化轨道指向这些方向。
    * 
    * @param {number} numOrbitals - 参与杂化的轨道数量
+   * @param {Array} orbitalParams - 轨道参数列表（用于确定角量子数）
    * @returns {Array} - 系数矩阵，每行是一个杂化轨道的系数
    */
-  function getHybridCoefficients(numOrbitals) {
-    // 标准杂化轨道系数（归一化的正交矩阵）
-    switch (numOrbitals) {
-      case 2: // sp 杂化
-        // sp₁ = (1/√2)(s + p), sp₂ = (1/√2)(s - p)
-        const c2 = 1 / Math.sqrt(2);
-        return [
-          [c2, c2],      // sp₁: +s +p
-          [c2, -c2]      // sp₂: +s -p
-        ];
 
-      case 3: // sp² 杂化 (三角平面)
-        const c3a = 1 / Math.sqrt(3);
-        const c3b = 1 / Math.sqrt(6);
-        const c3c = 1 / Math.sqrt(2);
-        return [
-          [c3a, Math.sqrt(2 / 3), 0],           // sp²₁
-          [c3a, -c3b, c3c],                   // sp²₂
-          [c3a, -c3b, -c3c]                   // sp²₃
-        ];
+  // Thomson 方向缓存
+  const _thomsonCache = {};
 
-      case 4: // sp³ 杂化 (四面体)
-        const c4 = 0.5;
-        return [
-          [c4, c4, c4, c4],     // sp³₁: 指向 (+,+,+)
-          [c4, c4, -c4, -c4],   // sp³₂: 指向 (+,+,-,-)
-          [c4, -c4, c4, -c4],   // sp³₃: 指向 (+,-,+,-)
-          [c4, -c4, -c4, c4]    // sp³₄: 指向 (+,-,-,+)
-        ];
-
-      case 5: // sp³d 杂化 (三角双锥)
-        // 构造：赤道面 sp² (s, px, py) + 轴向 pd (pz, dz²)
-        // 注意：这要求输入的轨道顺序为 s, px, py, pz, dz²
-        const c3a_5 = 1 / Math.sqrt(3);
-        const c3b_5 = 1 / Math.sqrt(6);
-        const c3c_5 = 1 / Math.sqrt(2);
-        const c2_5 = 1 / Math.sqrt(2);
-
-        return [
-          // 赤道面 3 个 (s, px, py 参与)
-          [c3a_5, c3b_5 * 2, 0, 0, 0],              // eq1: 指向 +x
-          [c3a_5, -c3b_5, c3c_5, 0, 0],             // eq2: 指向 -x+y
-          [c3a_5, -c3b_5, -c3c_5, 0, 0],            // eq3: 指向 -x-y
-          // 轴向 2 个 (pz, dz² 参与)
-          [0, 0, 0, c2_5, c2_5],                  // ax1: +z
-          [0, 0, 0, c2_5, -c2_5]                  // ax2: -z
-        ];
-
-      case 6: // sp³d² 杂化 (八面体)
-        // 构造：s, px, py, pz, dx²-y², dz²
-        const c6 = 1 / Math.sqrt(6);
-        const c2_inv = 1 / Math.sqrt(2);
-        const c12_inv = 1 / Math.sqrt(12);
-        const half = 0.5;
-
-        return [
-          // ±x 方向
-          [c6, c2_inv, 0, 0, half, -c12_inv],   // +x
-          [c6, -c2_inv, 0, 0, half, -c12_inv],  // -x
-          // ±y 方向
-          [c6, 0, c2_inv, 0, -half, -c12_inv],  // +y
-          [c6, 0, -c2_inv, 0, -half, -c12_inv], // -y
-          // ±z 方向
-          [c6, 0, 0, c2_inv, 0, 2 * c12_inv],     // +z
-          [c6, 0, 0, -c2_inv, 0, 2 * c12_inv]     // -z
-        ];
-
-      default:
-        // 默认：生成等权重系数矩阵（简单处理）
-        const defaultCoeff = 1 / Math.sqrt(numOrbitals);
-        const matrix = [];
-        for (let i = 0; i < numOrbitals; i++) {
-          const row = new Array(numOrbitals).fill(defaultCoeff);
-          // 使用简单的符号变化区分不同杂化轨道
-          for (let j = 0; j < numOrbitals; j++) {
-            // 使用哈达玛矩阵的思想
-            if (((i >> Math.floor(Math.log2(j + 1))) & 1) && j > 0) {
-              row[j] = -defaultCoeff;
-            }
-          }
-          matrix.push(row);
-        }
-        return matrix;
+  /**
+   * 计算 N 个球面点的静电势能
+   */
+  function thomsonEnergy(points) {
+    const n = points.length;
+    let energy = 0;
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const dx = points[i][0] - points[j][0];
+        const dy = points[i][1] - points[j][1];
+        const dz = points[i][2] - points[j][2];
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        energy += 1 / (dist + 1e-10);
+      }
     }
+    return energy;
+  }
+
+  /**
+   * 归一化点到球面
+   */
+  function normalizeToSphere(points) {
+    return points.map(p => {
+      const norm = Math.sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
+      if (norm < 1e-10) return [0, 0, 1];
+      return [p[0] / norm, p[1] / norm, p[2] / norm];
+    });
+  }
+
+  /**
+   * 用梯度下降优化 Thomson 问题
+   */
+  function optimizeThomson(n, maxIter = 200, lr = 0.1) {
+    if (n <= 1) return [[0, 0, 1]];
+
+    // 缓存检查
+    if (_thomsonCache[n]) {
+      return JSON.parse(JSON.stringify(_thomsonCache[n]));
+    }
+
+    // 【关键修复】使用确定性初始化（黄金角度分布）
+    // 确保每次结果相同，且与 Worker 中的算法一致
+    let points = [];
+    const goldenRatio = (1 + Math.sqrt(5)) / 2;
+    for (let i = 0; i < n; i++) {
+      const y = 1 - (i / (n - 1)) * 2;
+      const radius = Math.sqrt(1 - y * y);
+      const t = 2 * Math.PI * i / goldenRatio;
+      points.push([Math.cos(t) * radius, y, Math.sin(t) * radius]);
+    }
+
+    // 梯度下降
+    for (let iter = 0; iter < maxIter; iter++) {
+      // 计算梯度
+      const grad = points.map(() => [0, 0, 0]);
+
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          const dx = points[i][0] - points[j][0];
+          const dy = points[i][1] - points[j][1];
+          const dz = points[i][2] - points[j][2];
+          const dist2 = dx * dx + dy * dy + dz * dz;
+          const dist = Math.sqrt(dist2);
+          const dist3 = dist2 * dist + 1e-10;
+
+          // 梯度: d(1/r)/dr = -1/r² * (r_i - r_j)/|r_i - r_j|
+          const factor = 1 / dist3;
+          grad[i][0] -= factor * dx;
+          grad[i][1] -= factor * dy;
+          grad[i][2] -= factor * dz;
+          grad[j][0] += factor * dx;
+          grad[j][1] += factor * dy;
+          grad[j][2] += factor * dz;
+        }
+      }
+
+      // 更新位置
+      for (let i = 0; i < n; i++) {
+        points[i][0] -= lr * grad[i][0];
+        points[i][1] -= lr * grad[i][1];
+        points[i][2] -= lr * grad[i][2];
+      }
+
+      // 投影回球面
+      points = normalizeToSphere(points);
+
+      // 自适应学习率
+      if (iter % 50 === 0) lr *= 0.8;
+    }
+
+    // 缓存结果
+    _thomsonCache[n] = JSON.parse(JSON.stringify(points));
+    return points;
+  }
+
+  /**
+   * 根据轨道组合生成约束方向
+   * 这些方向在轨道的"可达角向空间"内，确保物理正确性
+   */
+  function generateConstrainedDirections(orbitalParams) {
+    const n = orbitalParams.length;
+
+    // 分析轨道组合
+    const hasS = orbitalParams.some(p => p.l === 0);
+    const pOrbitals = orbitalParams.filter(p => p.l === 1);
+    const dOrbitals = orbitalParams.filter(p => p.l === 2);
+
+    const hasPx = pOrbitals.some(p => p.angKey.m === 1 && p.angKey.t === 'c');
+    const hasPy = pOrbitals.some(p => p.angKey.m === 1 && p.angKey.t === 's');
+    const hasPz = pOrbitals.some(p => p.angKey.m === 0);
+
+    const hasDz2 = dOrbitals.some(p => p.angKey.m === 0);
+    const hasDx2y2 = dOrbitals.some(p => p.angKey.m === 2 && p.angKey.t === 'c');
+
+    // sp: 线性（z轴或x轴）
+    if (n === 2 && hasS && pOrbitals.length === 1) {
+      if (hasPz) return [[0, 0, 1], [0, 0, -1]];
+      if (hasPx) return [[1, 0, 0], [-1, 0, 0]];
+      if (hasPy) return [[0, 1, 0], [0, -1, 0]];
+    }
+
+    // sp2: 平面三角形
+    if (n === 3 && hasS && pOrbitals.length === 2) {
+      if (hasPx && hasPy) {
+        // xy平面
+        return [[1, 0, 0], [-0.5, Math.sqrt(3) / 2, 0], [-0.5, -Math.sqrt(3) / 2, 0]];
+      }
+      if (hasPx && hasPz) {
+        // xz平面
+        return [[1, 0, 0], [-0.5, 0, Math.sqrt(3) / 2], [-0.5, 0, -Math.sqrt(3) / 2]];
+      }
+      if (hasPy && hasPz) {
+        // yz平面
+        return [[0, 1, 0], [0, -0.5, Math.sqrt(3) / 2], [0, -0.5, -Math.sqrt(3) / 2]];
+      }
+    }
+
+    // sp3: 正四面体
+    if (n === 4 && hasS && pOrbitals.length === 3 && hasPx && hasPy && hasPz && dOrbitals.length === 0) {
+      const a = 1 / Math.sqrt(3);
+      return [[a, a, a], [a, -a, -a], [-a, a, -a], [-a, -a, a]];
+    }
+
+    // sp3d: 三角双锥
+    if (n === 5 && hasS && hasPx && hasPy && hasPz && hasDz2 && !hasDx2y2) {
+      return [
+        [0, 0, 1],                          // 轴向 +z
+        [0, 0, -1],                         // 轴向 -z
+        [1, 0, 0],                          // 赤道
+        [-0.5, Math.sqrt(3) / 2, 0],          // 赤道 120°
+        [-0.5, -Math.sqrt(3) / 2, 0]          // 赤道 240°
+      ];
+    }
+
+    // sp3d2: 正八面体
+    if (n === 6 && hasS && hasPx && hasPy && hasPz && hasDz2 && hasDx2y2) {
+      return [
+        [1, 0, 0], [-1, 0, 0],
+        [0, 1, 0], [0, -1, 0],
+        [0, 0, 1], [0, 0, -1]
+      ];
+    }
+
+    // 其他情况：使用通用Thomson优化（适用于全3D空间可达的组合）
+    return optimizeThomson(n);
+  }
+
+  /**
+   * 计算方向矩阵：每行是一个方向，每列是一个轨道的角向值
+   */
+  function buildDirectionMatrix(directions, orbitalParams) {
+    const nDirs = directions.length;
+    const nOrbitals = orbitalParams.length;
+    const A = [];
+
+    for (let i = 0; i < nDirs; i++) {
+      const d = directions[i];
+      const norm = Math.sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+      const x = d[0] / norm, y = d[1] / norm, z = d[2] / norm;
+
+      const row = [];
+      for (let j = 0; j < nOrbitals; j++) {
+        const { l, m, t } = orbitalParams[j].angKey || { l: 0, m: 0, t: 'c' };
+
+        // 计算实球谐函数在该方向的值
+        let val = 0;
+        if (l === 0) {
+          val = 1 / Math.sqrt(4 * PI);
+        } else if (l === 1) {
+          const norm_p = Math.sqrt(3 / (4 * PI));
+          if (m === 0) val = norm_p * z;            // pz
+          else if (t === 'c') val = norm_p * x;      // px
+          else val = norm_p * y;                     // py
+        } else if (l === 2) {
+          if (m === 0) {
+            val = Math.sqrt(5 / (16 * PI)) * (3 * z * z - 1);  // dz²
+          } else if (m === 1) {
+            if (t === 'c') val = Math.sqrt(15 / (4 * PI)) * x * z;  // dxz
+            else val = Math.sqrt(15 / (4 * PI)) * y * z;            // dyz
+          } else if (m === 2) {
+            if (t === 'c') val = Math.sqrt(15 / (16 * PI)) * (x * x - y * y);  // dx²-y²
+            else val = Math.sqrt(15 / (4 * PI)) * x * y;                       // dxy
+          }
+        }
+        row.push(val);
+      }
+      A.push(row);
+    }
+    return A;
+  }
+
+  /**
+   * 简单的 Jacobi SVD 算法 (A = U S V^T)
+   * 用于小矩阵 (N <= 10) 的奇异值分解
+   * 返回 { U, S, V }
+   */
+  function jacobiSVD(A) {
+    const m = A.length;
+    const n = A[0].length;
+    const minDim = Math.min(m, n);
+
+    // 初始化
+    let U = A.map(row => [...row]); // 复制 A
+    let V = [];
+    for (let i = 0; i < n; i++) {
+      const row = new Array(n).fill(0);
+      row[i] = 1;
+      V.push(row);
+    }
+
+    const EPSILON = 1e-15;
+    const MAX_ITER = 50;
+
+    // Jacobi 迭代
+    for (let iter = 0; iter < MAX_ITER; iter++) {
+      let maxError = 0;
+
+      for (let i = 0; i < n - 1; i++) {
+        for (let j = i + 1; j < n; j++) {
+          // 计算 2x2 子矩阵 J^T A^T A J
+          let alpha = 0, beta = 0, gamma = 0;
+
+          for (let k = 0; k < m; k++) {
+            alpha += U[k][i] * U[k][i];
+            beta += U[k][j] * U[k][j];
+            gamma += U[k][i] * U[k][j];
+          }
+
+          maxError = Math.max(maxError, Math.abs(gamma) / Math.sqrt(alpha * beta + EPSILON));
+
+          if (Math.abs(gamma) < EPSILON) continue;
+
+          // 计算旋转角度
+          let zeta = (beta - alpha) / (2 * gamma);
+          let t = Math.sign(zeta) / (Math.abs(zeta) + Math.sqrt(1 + zeta * zeta));
+          let c = 1 / Math.sqrt(1 + t * t);
+          let s = c * t;
+
+          // 更新 U
+          for (let k = 0; k < m; k++) {
+            let t1 = U[k][i];
+            let t2 = U[k][j];
+            U[k][i] = c * t1 - s * t2;
+            U[k][j] = s * t1 + c * t2;
+          }
+
+          // 更新 V
+          for (let k = 0; k < n; k++) {
+            let t1 = V[k][i];
+            let t2 = V[k][j];
+            V[k][i] = c * t1 - s * t2;
+            V[k][j] = s * t1 + c * t2;
+          }
+        }
+      }
+
+      if (maxError < 1e-10) break;
+    }
+
+    // 提取奇异值 S
+    const S = new Array(n).fill(0);
+    for (let i = 0; i < n; i++) {
+      let sum = 0;
+      for (let k = 0; k < m; k++) sum += U[k][i] * U[k][i];
+      S[i] = Math.sqrt(sum);
+      // 归一化 U 的列
+      if (S[i] > EPSILON) {
+        for (let k = 0; k < m; k++) U[k][i] /= S[i];
+      }
+    }
+
+    return { U, S, V };
+  }
+
+  /**
+   * 矩阵乘法 C = A * B
+   */
+  function matMul(A, B) {
+    const m = A.length;
+    const n = A[0].length;
+    const p = B[0].length;
+    const C = [];
+    for (let i = 0; i < m; i++) {
+      const row = new Array(p).fill(0);
+      for (let j = 0; j < p; j++) {
+        for (let k = 0; k < n; k++) {
+          row[j] += A[i][k] * B[k][j];
+        }
+      }
+      C.push(row);
+    }
+    return C;
+  }
+
+  /**
+   * 矩阵转置
+   */
+  function matTranspose(A) {
+    const m = A.length;
+    const n = A[0].length;
+    const AT = [];
+    for (let i = 0; i < n; i++) {
+      const row = new Array(m).fill(0);
+      for (let j = 0; j < m; j++) {
+        row[j] = A[j][i];
+      }
+      AT.push(row);
+    }
+    return AT;
+  }
+
+  /**
+   * 几何优化：根据方向计算杂化系数
+   * 使用 SVD 求解正交 Procrustes 问题：寻找正交矩阵 Q 使得 ||A - Q|| 最小
+   * Q = U * V^T
+   */
+  function computeHybridCoefficients(directions, orbitalParams) {
+    const A = buildDirectionMatrix(directions, orbitalParams);
+
+    // SVD 分解 A = U S V^T
+    const { U, V } = jacobiSVD(A);
+
+    // Q = U * V^T
+    // 注意：jacobiSVD 返回的 V 是 V 本身，不是 V^T
+    const VT = matTranspose(V);
+    const Q = matMul(U, VT);
+
+    return Q;
+  }
+
+  function getHybridCoefficients(numOrbitals, orbitalParams) {
+    // 强制要求必须提供轨道参数，绝不允许 Fallback
+    if (!orbitalParams || orbitalParams.length !== numOrbitals) {
+      console.error("getHybridCoefficients: Missing or invalid orbitalParams!", numOrbitals, orbitalParams);
+      throw new Error(`getHybridCoefficients requires orbitalParams matching numOrbitals (${numOrbitals})`);
+    }
+
+    // 【核心修复】使用约束方向，确保在轨道的可达角向空间内
+    const directions = generateConstrainedDirections(orbitalParams);
+
+    // 使用几何优化 (SVD Procrustes) 计算精确系数
+    return computeHybridCoefficients(directions, orbitalParams);
   }
 
   /**
@@ -489,7 +849,7 @@
     if (!paramsList || paramsList.length === 0) return 0;
 
     const numOrbitals = paramsList.length;
-    const coeffMatrix = getHybridCoefficients(numOrbitals);
+    const coeffMatrix = getHybridCoefficients(numOrbitals, paramsList);
 
     // 确保索引有效
     const idx = hybridIndex % numOrbitals;
@@ -517,7 +877,7 @@
     if (!paramsList || paramsList.length === 0) return 0;
 
     const numOrbitals = paramsList.length;
-    const coeffMatrix = getHybridCoefficients(numOrbitals);
+    const coeffMatrix = getHybridCoefficients(numOrbitals, paramsList);
     const idx = hybridIndex % numOrbitals;
     const coeffs = coeffMatrix[idx];
 
@@ -1773,7 +2133,7 @@
     const sortedParams = sortOrbitalsForHybridization(paramsList);
 
     const numOrbitals = sortedParams.length;
-    const coeffMatrix = getHybridCoefficients(numOrbitals);
+    const coeffMatrix = getHybridCoefficients(numOrbitals, sortedParams);
     const coeffs = coeffMatrix[hybridIndex % numOrbitals];
 
     // 【关键修复】使用全3D密度计算，而非仅角向强度
@@ -1905,7 +2265,7 @@
 
     const sortedParams = sortOrbitalsForHybridization(paramsList);
     const numOrbitals = sortedParams.length;
-    const coeffMatrix = getHybridCoefficients(numOrbitals);
+    const coeffMatrix = getHybridCoefficients(numOrbitals, sortedParams);
     const coeffs = coeffMatrix[hybridIndex % numOrbitals];
 
     let vecX = 0, vecY = 0, vecZ = 0;
@@ -2065,6 +2425,8 @@
     // 精确逆CDF采样
     buildRadialCDF,
     sampleRadialExact,
+    // 有效核电荷（Slater规则）
+    getEffectiveZ,
     // 重要性采样相关函数（保留兼容性）
     findRadialPeaks,
     getCachedPeaks,
@@ -2120,17 +2482,13 @@
 
       let integral = 0;
       // 使用梯形法则积分
-      // Integrand I(x) = -Z * x * R(x)^2
-      // E(r) = ∫ I(x) dx
+      // dE/dr = (-Z/r) × P(r) = (-Z/r) × r²R² = -Z × r × R²
 
-      // r=0 处 integrand 为 0 (因为 x term, except for s-orbitals? No, r*R^2 -> 0 as r->0 even for 1s)
-      // For 1s: R ~ exp(-Zr), R^2 ~ exp(-2Zr), x*R^2 -> 0. Safe.
-
-      let prevValue = 0; // I(0) = 0
+      let prevValue = 0;
 
       for (let i = 0; i < steps; i++) {
-        const r = (i + 1) * dr; //避免 r=0 除法问题，虽然这里不需要除法
-        const R = radialR(n, l, r, Z, A0, atomType);
+        const r = (i + 1) * dr;
+        const R = radialR(n, l, r, 1, A0, atomType);
         const currentValue = -Z * r * R * R;
 
         // 梯形面积

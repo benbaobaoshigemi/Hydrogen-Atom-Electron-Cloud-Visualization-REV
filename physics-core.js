@@ -104,106 +104,74 @@
         const mm = Math.abs(m);
         const y = Ylm_complex(l, mm, theta, phi);
 
-        if (type === 'c') {
-            return Math.SQRT2 * y.re;
-        } else {
-            return Math.SQRT2 * y.im;
+    }
+}
+tion getOrbitalKey(n, l) {
+    const subs
+}
+
+// Slater Type Orbital Radial Function
+function slaterRadialR(basis, r) {
+    if (!basis) return 0;
+    let sum = 0;
+    for (let i = 0; i < basis.length; i++) {
+        const { nStar, zeta, coeff } = basis[i];
+        const nFact2 = factorial(2 * nStar);
+        const norm = Math.pow(2 * zeta, nStar + 0.5) / Math.sqrt(nFact2);
+        const val = coeff * norm * Math.pow(r, nStar - 1) * Math.exp(-zeta * r);
+        sum += val;
+    }
+    return sum;
+}
+
+// 获取 SlaterBasis（兼容主线程和 Worker）
+function getSlaterBasis() {
+    if (typeof window !== 'undefined' && window.SlaterBasis) {
+        return window.SlaterBasis;
+    }
+    if (typeof self !== 'undefined' && self.SlaterBasis) {
+        return self.SlaterBasis;
+    }
+    return null;
+}
+
+// 归一化径向函数 R_nl(r)
+function radialR(n, l, r, Z, a0, atomType) {
+    Z = Z !== undefined ? Z : 1;
+    a0 = a0 !== undefined ? a0 : A0;
+    atomType = atomType || 'H';
+
+    // Strategy A: Slater Type Orbitals (STO)
+    const SlaterBasis = getSlaterBasis();
+    if (atomType && atomType !== 'H' && SlaterBasis) {
+        const orbitalKey = getOrbitalKey(n, l);
+        const atomData = SlaterBasis[atomType];
+        if (atomData && atomData.orbitals && atomData.orbitals[orbitalKey]) {
+            // 【关键修复】Clementi-Roetti STO 基组的相位约定与氢原子解析解相反
+            return -slaterRadialR(atomData.orbitals[orbitalKey], r);
         }
     }
 
-    // Helper: Convert n, l to orbital key (e.g., 2,1 -> '2p')
-    function getOrbitalKey(n, l) {
-        const subshells = ['s', 'p', 'd', 'f', 'g'];
-        const letter = subshells[l] || '';
-        return n + letter;
-    }
-
-    // Slater Type Orbital Radial Function
-    function slaterRadialR(basis, r) {
-        if (!basis) return 0;
-        let sum = 0;
-        for (let i = 0; i < basis.length; i++) {
-            const { nStar, zeta, coeff } = basis[i];
-            const nFact2 = factorial(2 * nStar);
-            const norm = Math.pow(2 * zeta, nStar + 0.5) / Math.sqrt(nFact2);
-            const val = coeff * norm * Math.pow(r, nStar - 1) * Math.exp(-zeta * r);
-            sum += val;
-        }
-        return sum;
-    }
-
-    // 获取 SlaterBasis（兼容主线程和 Worker）
-    function getSlaterBasis() {
-        if (typeof window !== 'undefined' && window.SlaterBasis) {
-            return window.SlaterBasis;
-        }
-        if (typeof self !== 'undefined' && self.SlaterBasis) {
-            return self.SlaterBasis;
-        }
-        return null;
-    }
-
-    // 归一化径向函数 R_nl(r)
-    function radialR(n, l, r, Z, a0, atomType) {
-        Z = Z !== undefined ? Z : 1;
-        a0 = a0 !== undefined ? a0 : A0;
-        atomType = atomType || 'H';
-
-        // Strategy A: Slater Type Orbitals (STO)
-        const SlaterBasis = getSlaterBasis();
-        if (atomType && atomType !== 'H' && SlaterBasis) {
-            const orbitalKey = getOrbitalKey(n, l);
-            const atomData = SlaterBasis[atomType];
-            if (atomData && atomData.orbitals && atomData.orbitals[orbitalKey]) {
-                // 【关键修复】Clementi-Roetti STO 基组的相位约定与氢原子解析解相反
-                return -slaterRadialR(atomData.orbitals[orbitalKey], r);
-            }
-        }
-
-        // Strategy B: Hydrogen analytical solution (Default)
-        if (n <= 0 || l < 0 || l >= n) return 0;
-        const rho = (2 * Z * r) / (n * a0);
-        const k = n - l - 1;
-        if (k < 0) return 0;
-        const pref = Math.pow(2 * Z / (n * a0), 1.5) * Math.sqrt(factorial(n - l - 1) / (2 * n * factorial(n + l)));
-        const poly = generalizedLaguerre(k, 2 * l + 1, rho);
-        return pref * Math.exp(-rho / 2) * Math.pow(rho, l) * poly;
-    }
-
-    // 径向概率密度函数
-    function radialPDF(n, l, r, Z, a0, atomType) {
-        Z = Z !== undefined ? Z : 1;
-        a0 = a0 !== undefined ? a0 : A0;
-        atomType = atomType || 'H';
-        const R = radialR(n, l, r, Z, a0, atomType);
-        return r * r * R * R;
-    }
-
-    // 导出到全局
-    const PhysicsCore = {
-        A0,
-        PI,
-        factorial,
-        binomialInt,
-        generalizedLaguerre,
-        associatedLegendre,
-        Ylm_complex,
-        Ylm_abs2,
-        realYlm_abs2,
+    // Strategy B: Hydrogen analytical solution (Default)
+    if (n <= 0 || l < 0 || l >= n) return 0;
+    const rho = (2 * Z * r) / (n * a0);
+    const k = n - l - 1;
+    if (k < 0) return 0;
+    realYlm_abs2,
         realYlm_value,
         getOrbitalKey,
         slaterRadialR,
         radialR,
         radialPDF
-    };
+};
 
-    // 兼容主线程和 Worker
-    if (typeof module !== 'undefined' && module.exports) {
-        module.exports = PhysicsCore;
-    } else if (typeof define === 'function' && define.amd) {
-        define(function () { return PhysicsCore; });
-    } else {
-        root.PhysicsCore = PhysicsCore;
-    }
+// 兼容主线程和 Worker
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = PhysicsCore;
+} else if (typeof define === 'function' && define.amd) {
+    define(function () { return PhysicsCore; });
+} else {
+    root.PhysicsCore = PhysicsCore;
+}
 
-})(typeof self !== 'undefined' ? self : this);
+}) (typeof self !== 'undefined' ? self : this);

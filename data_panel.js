@@ -876,7 +876,8 @@
       }
       datasets.push({
         label: '理论 E(log r)',
-        data: theory.points.map(p => p.y),
+        // 【关键修复】使用{x,y}坐标对象，让Chart.js正确绑定x轴，而不是按labels索引对应
+        data: theory.points.map(p => ({ x: p.x, y: p.y })),
         borderColor: 'rgba(255, 255, 255, 0.95)',
         backgroundColor: 'transparent',
         pointRadius: 0,
@@ -940,7 +941,8 @@
       }
       datasets.push({
         label: '理论 dE/d(log r)',
-        data: theory.points.map(p => p.y),
+        // 【关键修复】使用{x,y}坐标对象
+        data: theory.points.map(p => ({ x: p.x, y: p.y })),
         borderColor: 'rgba(255, 255, 255, 0.95)',
         backgroundColor: 'transparent',
         pointRadius: 0,
@@ -1416,10 +1418,16 @@
           const Z = window.SlaterBasis && window.SlaterBasis[atomType] ? window.SlaterBasis[atomType].Z : 1;
           const rMax = Math.pow(10, Math.max(...centers)); // centers已经是log值
           const theoryRes = window.Hydrogen.calculateCumulativePotential(orbitalParams.n, orbitalParams.l, Z, atomType, rMax, 500);
-          theoryData = theoryRes.r.filter(r => r > 0).map((r, i) => ({
-            x: Math.log10(r),
-            y: theoryRes.E[i]
-          }));
+          // 【关键修复】使用正确的索引映射，避免filter后索引错位导致锯齿
+          theoryData = [];
+          for (let i = 0; i < theoryRes.r.length; i++) {
+            if (theoryRes.r[i] > 0) {
+              theoryData.push({
+                x: Math.log10(theoryRes.r[i]),
+                y: theoryRes.E[i]
+              });
+            }
+          }
         } else if (type === 'dEdrLog') {
           // dEdrLog 理论曲线：dE/d(log r) = -Z * radialPDF
           const Z = window.SlaterBasis && window.SlaterBasis[atomType] ? window.SlaterBasis[atomType].Z : 1;

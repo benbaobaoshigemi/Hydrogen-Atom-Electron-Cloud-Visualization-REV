@@ -880,7 +880,7 @@ window.ElectronCloud.Sampling.processHybridModePoint = function (paramsList, pos
     const k = state.hybridRoundRobinIndex % numOrbitals;
     state.hybridRoundRobinIndex++;
 
-    const coeffMatrix = Hydrogen.getHybridCoefficients(numOrbitals);
+    const coeffMatrix = Hydrogen.getHybridCoefficients(numOrbitals, paramsList);
     const coeffs = coeffMatrix[k];
 
     // 将系数注入 paramsList
@@ -912,7 +912,7 @@ function processSingleHybridPoint(paramsList, hybridIndex, positions, colors) {
 
     // 1. 获取杂化系数
     const numOrbitals = paramsList.length;
-    const coeffMatrix = Hydrogen.getHybridCoefficients(numOrbitals);
+    const coeffMatrix = Hydrogen.getHybridCoefficients(numOrbitals, paramsList);
     const coeffs = coeffMatrix[hybridIndex % numOrbitals];
 
     // 2. 将系数注入 paramsList
@@ -1249,7 +1249,7 @@ window.ElectronCloud.Sampling.performRollingUpdate = function () {
             paramsList = Hydrogen.sortOrbitalsForHybridization(paramsList);
         }
         hybridNumOrbitals = paramsList.length;
-        const matrix = Hydrogen.getHybridCoefficients(hybridNumOrbitals);
+        const matrix = Hydrogen.getHybridCoefficients(hybridNumOrbitals, paramsList);
         // 我们只在循环里取需要的系数
         hybridCoeffs = matrix;
     }

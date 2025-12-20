@@ -4313,6 +4313,45 @@ globalScope.SlaterBasis = {
       ],
     }
   },
+  'Au_NR': {
+    Z: 79,
+    name: 'Gold (Non-Relativistic)',
+    groundState: '[Xe] 4f14 5d10 6s1',
+    orbitals: {
+      '1s': [{ nStar: 1, zeta: 78.5, coeff: 1.0 }],
+      '6s': [
+        { nStar: 1, zeta: 78.52, coeff: -0.012 },
+        { nStar: 4, zeta: 12.8, coeff: 0.15 },
+        { nStar: 5, zeta: 5.5, coeff: -0.45 },
+        { nStar: 6, zeta: 2.1, coeff: 0.98 }
+      ],
+      '5d': [
+        { nStar: 3, zeta: 28.5, coeff: 0.08 },
+        { nStar: 4, zeta: 12.5, coeff: -0.35 },
+        { nStar: 5, zeta: 3.8, coeff: 1.05 }
+      ]
+    }
+  },
+  'Au_R': {
+    Z: 79,
+    name: 'Gold (Relativistic)',
+    note: 'Relativistic contraction of s orbitals and expansion of d orbitals.',
+    groundState: '[Xe] 4f14 5d10 6s1',
+    orbitals: {
+      '1s': [{ nStar: 1, zeta: 96.0, coeff: 1.0 }], // Relativistic contraction ~22%
+      '6s': [
+        { nStar: 1, zeta: 96.0, coeff: -0.015 },
+        { nStar: 4, zeta: 16.5, coeff: 0.18 },
+        { nStar: 5, zeta: 7.2, coeff: -0.52 },
+        { nStar: 6, zeta: 2.8, coeff: 1.15 } // Higher zeta -> peak closer to nucleus
+      ],
+      '5d': [
+        { nStar: 3, zeta: 26.5, coeff: 0.10 },
+        { nStar: 4, zeta: 11.2, coeff: -0.38 },
+        { nStar: 5, zeta: 3.2, coeff: 1.20 } // Lower zeta -> peak further from nucleus
+      ]
+    }
+  },
 };
 
 // Helper functions

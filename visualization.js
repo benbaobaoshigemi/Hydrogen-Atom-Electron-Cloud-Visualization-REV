@@ -2,6 +2,89 @@
 window.ElectronCloud = window.ElectronCloud || {};
 window.ElectronCloud.Visualization = {};
 
+// =============== 等值面计算 Worker 管理 ===============
+
+let isosurfaceWorker = null;
+let isosurfaceTaskId = 0;
+const isosurfacePendingCallbacks = new Map();
+
+// 初始化等值面 Worker
+function initIsosurfaceWorker() {
+    if (isosurfaceWorker) return;
+
+    try {
+        isosurfaceWorker = new Worker('isosurface-worker.js');
+
+        isosurfaceWorker.onmessage = function (e) {
+            const { type, taskId, progress, result, error } = e.data;
+
+            if (type === 'ready') {
+                console.log('等值面计算 Worker 就绪');
+            } else if (type === 'progress') {
+                // 进度回调
+                const callbacks = isosurfacePendingCallbacks.get(taskId);
+                if (callbacks && callbacks.onProgress) {
+                    callbacks.onProgress(progress);
+                }
+            } else if (type === 'isosurface-result') {
+                // 结果回调
+                const callbacks = isosurfacePendingCallbacks.get(taskId);
+                if (callbacks && callbacks.onComplete) {
+                    callbacks.onComplete(result);
+                }
+                isosurfacePendingCallbacks.delete(taskId);
+            } else if (type === 'error') {
+                console.error('等值面计算 Worker 错误:', error);
+                const callbacks = isosurfacePendingCallbacks.get(taskId);
+                if (callbacks && callbacks.onError) {
+                    callbacks.onError(error);
+                }
+                isosurfacePendingCallbacks.delete(taskId);
+            }
+        };
+
+        isosurfaceWorker.onerror = function (err) {
+            console.error('等值面计算 Worker 崩溃:', err);
+        };
+
+        console.log('等值面计算 Worker 初始化完成');
+    } catch (err) {
+        console.warn('等值面计算 Worker 初始化失败，将使用主线程计算:', err);
+        isosurfaceWorker = null;
+    }
+}
+
+// 异步计算等值面
+window.ElectronCloud.Visualization.computeIsosurfaceAsync = function (params, onProgress, onComplete, onError) {
+    const taskId = ++isosurfaceTaskId;
+
+    if (!isosurfaceWorker) {
+        initIsosurfaceWorker();
+    }
+
+    if (!isosurfaceWorker) {
+        // Worker 不可用，同步计算
+        if (onError) onError('Worker not available');
+        return;
+    }
+
+    isosurfacePendingCallbacks.set(taskId, { onProgress, onComplete, onError });
+
+    isosurfaceWorker.postMessage({
+        type: 'compute-isosurface',
+        taskId,
+        data: params
+    });
+
+    return taskId;
+};
+
+// 检查 Worker 是否可用
+window.ElectronCloud.Visualization.isIsosurfaceWorkerAvailable = function () {
+    if (!isosurfaceWorker) initIsosurfaceWorker();
+    return isosurfaceWorker !== null;
+};
+
 // 创建角向分布3D可视化
 window.ElectronCloud.Visualization.createAngularOverlay = function () {
     const state = window.ElectronCloud.state;
@@ -49,7 +132,7 @@ window.ElectronCloud.Visualization.createOrbitalMesh = function (group, params, 
     // 获取杂化系数矩阵（如果是杂化模式）
     let coeffMatrix = null;
     if (isHybridMode && numOrbitals > 1 && Hydrogen.getHybridCoefficients) {
-        coeffMatrix = Hydrogen.getHybridCoefficients(numOrbitals);
+        coeffMatrix = Hydrogen.getHybridCoefficients(numOrbitals, orbitalParams);
     }
 
     // 【关键】确定网格极点的目标方向（最高次对称轴）
@@ -120,7 +203,7 @@ window.ElectronCloud.Visualization.createOrbitalMesh = function (group, params, 
     }
 
     // 提高网格密度 - 使用 IcosahedronGeometry (Icosphere) 替代 SphereGeometry
-    // detail=50 (约 156,060 顶点) for ultra high density mesh
+    // detail=5 (约 20,480 面) - 足够精细且性能良好
     const geometry = new THREE.IcosahedronGeometry(baseRadius, 50);
     const vertices = geometry.attributes.position.array;
     const colors = new Float32Array(vertices.length);
@@ -172,7 +255,7 @@ window.ElectronCloud.Visualization.createOrbitalMesh = function (group, params, 
     });
 
     const mesh = new THREE.Mesh(geometry, material);
-    mesh.layers.set(1);
+    mesh.layers.set(0);  // layer 0 以参与 Bloom 后处理
     group.add(mesh);
 };
 
@@ -275,7 +358,7 @@ window.ElectronCloud.Visualization.createAngularOverlayFromSamples = function ()
     }
 
     // 使用 IcosahedronGeometry 替代 SphereGeometry，确保所有模式下网格密度一致且无极点
-    // detail=50 (约 156,060 顶点)
+    // detail=5 (约 20,480 面) - 足够精细且性能良好
     const geometry = new THREE.IcosahedronGeometry(baseRadius, 50);
     const vertices = geometry.attributes.position.array;
     const colors = new Float32Array(vertices.length);
@@ -321,7 +404,7 @@ window.ElectronCloud.Visualization.createAngularOverlayFromSamples = function ()
     });
 
     const mesh = new THREE.Mesh(geometry, material);
-    mesh.layers.set(1);
+    mesh.layers.set(0);  // layer 0 以参与 Bloom 后处理
     overlayGroup.add(mesh);
 
     return overlayGroup;
@@ -454,7 +537,7 @@ window.ElectronCloud.Visualization.enableContourHighlight = function () {
     // 获取杂化系数矩阵
     let coeffMatrix = null;
     if (isHybridMode && Hydrogen.getHybridCoefficients && orbitalParams.length > 1) {
-        coeffMatrix = Hydrogen.getHybridCoefficients(orbitalParams.length);
+        coeffMatrix = Hydrogen.getHybridCoefficients(orbitalParams.length, orbitalParams);
     }
 
     // 是否为比照模式
@@ -651,7 +734,7 @@ window.ElectronCloud.Visualization.createContourInterpolationPoints = function (
     // 获取杂化系数
     let coeffMatrix = null;
     if (isHybridMode && Hydrogen.getHybridCoefficients && orbitalParams.length > 1) {
-        coeffMatrix = Hydrogen.getHybridCoefficients(orbitalParams.length);
+        coeffMatrix = Hydrogen.getHybridCoefficients(orbitalParams.length, orbitalParams);
     }
 
     // 计算波函数值
@@ -875,7 +958,7 @@ window.ElectronCloud.Visualization.updatePointColors = function () {
 
     let coeffMatrix = null;
     if (isHybridMode && orbitalParams.length > 1 && Hydrogen.getHybridCoefficients) {
-        coeffMatrix = Hydrogen.getHybridCoefficients(orbitalParams.length);
+        coeffMatrix = Hydrogen.getHybridCoefficients(orbitalParams.length, orbitalParams);
     }
 
     // 使用全局 phaseColors 常量，与所有采样函数保持一致
@@ -968,12 +1051,12 @@ window.ElectronCloud.Visualization.createContourMesh = function (group, baseRadi
 
     let coeffMatrix = null;
     if (isHybridMode && orbitalParams.length > 1 && Hydrogen.getHybridCoefficients) {
-        coeffMatrix = Hydrogen.getHybridCoefficients(orbitalParams.length);
+        coeffMatrix = Hydrogen.getHybridCoefficients(orbitalParams.length, orbitalParams);
     }
 
-    // 波函数计算 (直角坐标)
+    // 波函数计算 (直角坐标) - 用于计算 isovalue
     const atomType = state.currentAtom || 'H';
-    function calcPsi(x, y, z) {
+    function calcPsiLocal(x, y, z) {
         const r = Math.sqrt(x * x + y * y + z * z);
         if (r < 1e-10) return 0;
         const theta = Math.acos(Math.max(-1, Math.min(1, z / r)));
@@ -1002,55 +1085,123 @@ window.ElectronCloud.Visualization.createContourMesh = function (group, baseRadi
     }
 
     // 计算等值面阈值
-    // 使用 95% 分位的 |ψ| 作为边界（即包含 95% 概率的等值面）
     const psiValues = [];
     const positions = state.points.geometry.attributes.position.array;
     for (let i = 0; i < state.pointCount; i++) {
         const i3 = i * 3;
-        psiValues.push(Math.abs(calcPsi(positions[i3], positions[i3 + 1], positions[i3 + 2])));
+        psiValues.push(Math.abs(calcPsiLocal(positions[i3], positions[i3 + 1], positions[i3 + 2])));
     }
-    psiValues.sort((a, b) => b - a);  // 从大到小排序
-    // 95% 等值面：取第 95% 位置的值（即只有 5% 的点的 |ψ| 低于此阈值）
+    psiValues.sort((a, b) => b - a);
     const isovalue = psiValues[Math.floor(psiValues.length * 0.95)] || 0.0001;
 
-    // Marching Cubes - 优化分辨率以兼顾性能和质量
     const bound = baseRadius * 1.3;
-    const resolution = 160; // 提升分辨率至 160 (原 120) 以增加线框细分度
-    const result = window.MarchingCubes.run(calcPsi, { min: [-bound, -bound, -bound], max: [bound, bound, bound] }, resolution, isovalue);
+    const resolution = 200; // 【提升】从 160 提升到 200
 
-    // 创建网格
-    function addLobeMeshes(triangles, color) {
-        if (triangles.length < 9) return;
-        const components = window.MarchingCubes.separate(triangles);
+    // 检查 Worker 是否可用
+    const useWorker = window.ElectronCloud.Visualization.isIsosurfaceWorkerAvailable &&
+        window.ElectronCloud.Visualization.isIsosurfaceWorkerAvailable();
 
-        for (const comp of components) {
-            if (comp.length < 9) continue;
-            const geom = window.MarchingCubes.toGeometry(comp);
-            const colors = new Float32Array(comp.length * 3);
-            for (let i = 0; i < comp.length; i++) { colors[i * 3] = color.r; colors[i * 3 + 1] = color.g; colors[i * 3 + 2] = color.b; }
-            geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    if (useWorker) {
+        // 【异步】使用 Worker 计算
+        const atomSlaterData = (window.SlaterBasis && window.SlaterBasis[atomType])
+            ? window.SlaterBasis[atomType] : null;
 
-            const mesh = new THREE.Mesh(geom, new THREE.MeshBasicMaterial({
-                vertexColors: true, transparent: true, opacity: 0.55,
-                side: THREE.DoubleSide, wireframe: true, wireframeLinewidth: 1.5
-            }));
-            mesh.layers.set(1);
-            group.add(mesh);
+        const workerParams = {
+            orbitalParams: orbitalParams.map(op => ({
+                n: op.n, l: op.l,
+                angKey: { l: op.angKey.l, m: op.angKey.m, t: op.angKey.t }
+            })),
+            coeffs: isHybridMode && coeffMatrix ? coeffMatrix[0] : orbitalParams.map(() => 1),
+            bound: bound,
+            resolution: resolution,
+            isovalue: isovalue,
+            atomType: atomType,
+            slaterBasis: atomSlaterData,
+            color: { r: 0.2, g: 1.0, b: 0.5 }
+        };
+
+        window.ElectronCloud.Visualization.computeIsosurfaceAsync(
+            workerParams,
+            null,
+            function (result) {
+                fillGroupWithWorkerResult(group, result, state.usePhaseColoring);
+                console.log('普通模式等值面计算完成 (Worker)');
+            },
+            function (error) {
+                console.error('Worker 等值面计算失败:', error);
+            }
+        );
+    } else {
+        // 【同步】回退到主线程计算
+        const result = window.MarchingCubes.run(calcPsiLocal, { min: [-bound, -bound, -bound], max: [bound, bound, bound] }, resolution, isovalue);
+        addLobeMeshesSync(group, result, state.usePhaseColoring);
+    }
+
+    // Worker 结果填充
+    function fillGroupWithWorkerResult(grp, result, usePhase) {
+        const colorPos = usePhase ? { r: 0.0, g: 0.75, b: 1.0 } : { r: 0.2, g: 1.0, b: 0.5 };
+        const colorNeg = usePhase ? { r: 1.0, g: 0.27, b: 0.0 } : { r: 0.2, g: 1.0, b: 0.5 };
+
+        for (const vertices of result.positive) {
+            if (vertices.length < 9) continue;
+            addMeshFromVertices(grp, vertices, colorPos);
+        }
+        for (const vertices of result.negative) {
+            if (vertices.length < 9) continue;
+            addMeshFromVertices(grp, vertices, colorNeg);
         }
     }
 
-    const standardColor = { r: 0.2, g: 1.0, b: 0.5 }; // 默认绿色
-    const colorPos = { r: 0.0, g: 0.75, b: 1.0 };     // 冰蓝
-    const colorNeg = { r: 1.0, g: 0.27, b: 0.0 };     // 橙色
+    function addMeshFromVertices(grp, vertices, color) {
+        const posArr = new Float32Array(vertices);
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+        geometry.computeVertexNormals();
 
-    if (state.usePhaseColoring) {
-        // 开启相位显示：正蓝负红
-        addLobeMeshes(result.positive, colorPos);
-        addLobeMeshes(result.negative, colorNeg);
-    } else {
-        // 关闭相位显示：统一绿色 (默认)
-        addLobeMeshes(result.positive, standardColor);
-        addLobeMeshes(result.negative, standardColor);
+        const colors = new Float32Array(vertices.length);
+        for (let i = 0; i < vertices.length / 3; i++) {
+            colors[i * 3] = color.r;
+            colors[i * 3 + 1] = color.g;
+            colors[i * 3 + 2] = color.b;
+        }
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+        const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+            vertexColors: true, transparent: true, opacity: 0.55,
+            side: THREE.DoubleSide, wireframe: true, wireframeLinewidth: 1.5
+        }));
+        mesh.layers.set(1);
+        grp.add(mesh);
+    }
+
+    // 同步回退
+    function addLobeMeshesSync(grp, result, usePhase) {
+        const colorPos = usePhase ? { r: 0.0, g: 0.75, b: 1.0 } : { r: 0.2, g: 1.0, b: 0.5 };
+        const colorNeg = usePhase ? { r: 1.0, g: 0.27, b: 0.0 } : { r: 0.2, g: 1.0, b: 0.5 };
+
+        function addLobes(triangles, color) {
+            if (triangles.length < 9) return;
+            const components = window.MarchingCubes.separate(triangles);
+            for (const comp of components) {
+                if (comp.length < 9) continue;
+                const geom = window.MarchingCubes.toGeometry(comp);
+                const cols = new Float32Array(comp.length * 3);
+                for (let i = 0; i < comp.length; i++) {
+                    cols[i * 3] = color.r;
+                    cols[i * 3 + 1] = color.g;
+                    cols[i * 3 + 2] = color.b;
+                }
+                geom.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+                const mesh = new THREE.Mesh(geom, new THREE.MeshBasicMaterial({
+                    vertexColors: true, transparent: true, opacity: 0.55,
+                    side: THREE.DoubleSide, wireframe: true, wireframeLinewidth: 1.5
+                }));
+                mesh.layers.set(1);
+                grp.add(mesh);
+            }
+        }
+        addLobes(result.positive, colorPos);
+        addLobes(result.negative, colorNeg);
     }
 };
 
@@ -1255,7 +1406,8 @@ window.ElectronCloud.Visualization.updateContourOverlay = function () {
 
 /**
  * 创建杂化轨道的独立等值面轮廓（每个轨道一个）
- * 只为可见的轨道创建等值面
+ * 【性能优化】使用 Worker 异步计算 Marching Cubes，避免阻塞主线程
+ * 先返回占位 Group 对象，Worker 完成后自动填充几何体
  */
 window.ElectronCloud.Visualization.createHybridContourOverlays = function () {
     const state = window.ElectronCloud.state;
@@ -1279,13 +1431,12 @@ window.ElectronCloud.Visualization.createHybridContourOverlays = function () {
     }
 
     const numOrbitals = orbitalParams.length;
-    const coeffMatrix = Hydrogen.getHybridCoefficients ? Hydrogen.getHybridCoefficients(numOrbitals) : null;
+    const coeffMatrix = Hydrogen.getHybridCoefficients ? Hydrogen.getHybridCoefficients(numOrbitals, orbitalParams) : null;
 
     if (!coeffMatrix) return overlays;
 
-    // 【关键修复】使用 estimateOrbitalRadius95 计算正确的轨道边界
-    // 而不是 state.farthestDistance（可能是旧原子的遗留值）
-    let estimatedRadius = 15; // 默认值
+    // 计算轨道边界
+    let estimatedRadius = 15;
     if (Hydrogen.estimateOrbitalRadius95) {
         for (const key of orbitals) {
             const r95 = Hydrogen.estimateOrbitalRadius95(atomType, key);
@@ -1293,23 +1444,21 @@ window.ElectronCloud.Visualization.createHybridContourOverlays = function () {
         }
     }
 
-    // 不同颜色用于区分各个杂化轨道
+    // 颜色配置
     const colors = [
-        { r: 0.2, g: 1.0, b: 0.5 },   // 绿色
-        { r: 1.0, g: 0.5, b: 0.2 },   // 橙色
-        { r: 0.2, g: 0.5, b: 1.0 },   // 蓝色
-        { r: 1.0, g: 0.2, b: 0.8 },   // 粉色
-        { r: 0.8, g: 1.0, b: 0.2 },   // 黄绿色
-        { r: 0.2, g: 1.0, b: 1.0 },   // 青色
+        { r: 0.2, g: 1.0, b: 0.5 },
+        { r: 1.0, g: 0.5, b: 0.2 },
+        { r: 0.2, g: 0.5, b: 1.0 },
+        { r: 1.0, g: 0.2, b: 0.8 },
+        { r: 0.8, g: 1.0, b: 0.2 },
+        { r: 0.2, g: 1.0, b: 1.0 },
     ];
 
-    // 【关键修复】为所有杂化轨道计算统一的 isovalue
-    // 由于 sp 杂化的轨道是等价的（只是方向相反），应该使用相同的阈值
+    // 计算统一的 isovalue
     let unifiedIsovalue = 0.0001;
     const positions = state.points.geometry.attributes.position.array;
     const allPsiValues = [];
 
-    // 收集所有杂化轨道点的 psi 值
     for (let hybridIndex = 0; hybridIndex < numOrbitals; hybridIndex++) {
         const pointIndices = state.hybridOrbitalPointsMap[hybridIndex] || [];
         const coeffs = coeffMatrix[hybridIndex];
@@ -1335,18 +1484,19 @@ window.ElectronCloud.Visualization.createHybridContourOverlays = function () {
         }
     }
 
-    // 计算统一的 95% 分位数阈值
     if (allPsiValues.length >= 100) {
-        allPsiValues.sort((a, b) => b - a);  // 从大到小排序
-        // 取第 95% 位置的值（即只有 5% 的点的 |ψ| 低于此阈值）
+        allPsiValues.sort((a, b) => b - a);
         unifiedIsovalue = allPsiValues[Math.floor(allPsiValues.length * 0.95)] || 0.0001;
     }
 
-    // 为每个可见的杂化轨道创建等值面
+    // 检查 Worker 是否可用
+    const useWorker = window.ElectronCloud.Visualization.isIsosurfaceWorkerAvailable &&
+        window.ElectronCloud.Visualization.isIsosurfaceWorkerAvailable();
+
+    // 为每个杂化轨道创建占位 Group 或同步计算
     for (let hybridIndex = 0; hybridIndex < numOrbitals; hybridIndex++) {
-        // 检查该轨道是否可见
         if (state.hybridOrbitalVisibility && state.hybridOrbitalVisibility[hybridIndex] === false) {
-            overlays.push(null); // 占位，保持索引一致
+            overlays.push(null);
             continue;
         }
 
@@ -1356,29 +1506,105 @@ window.ElectronCloud.Visualization.createHybridContourOverlays = function () {
             continue;
         }
 
-        const overlay = createSingleHybridContour(
-            orbitalParams,
-            coeffMatrix[hybridIndex],
-            hybridIndex,
-            pointIndices,
-            colors[hybridIndex % colors.length],
-            unifiedIsovalue  // 传入统一的 isovalue
-        );
+        // 计算 maxR
+        let maxR = 0;
+        for (const pointIdx of pointIndices) {
+            const i3 = pointIdx * 3;
+            const x = positions[i3], y = positions[i3 + 1], z = positions[i3 + 2];
+            const r = Math.sqrt(x * x + y * y + z * z);
+            if (r > maxR) maxR = r;
+        }
+        const bound = Math.max(maxR, estimatedRadius) * 1.5;
+        const color = colors[hybridIndex % colors.length];
+        const coeffs = coeffMatrix[hybridIndex];
 
-        if (overlay) {
-            overlays.push(overlay);
+        // 创建占位 Group
+        const overlayGroup = new THREE.Group();
+        overlayGroup.userData.hybridIndex = hybridIndex;
+        overlays.push(overlayGroup);
+
+        if (useWorker) {
+            // 【异步】使用 Worker 计算
+            // 获取该原子的 SlaterBasis 数据（如果有）
+            const atomSlaterData = (window.SlaterBasis && window.SlaterBasis[atomType])
+                ? window.SlaterBasis[atomType] : null;
+
+            const workerParams = {
+                orbitalParams: orbitalParams.map(op => ({
+                    n: op.n, l: op.l,
+                    angKey: { l: op.angKey.l, m: op.angKey.m, t: op.angKey.t }
+                })),
+                coeffs: coeffs,
+                bound: bound,
+                resolution: 200,
+                isovalue: unifiedIsovalue,
+                atomType: atomType,
+                slaterBasis: atomSlaterData, // 传递 SlaterBasis 数据
+                color: color
+            };
+
+            // 创建闭包捕获当前的 overlayGroup 和配置
+            (function (group, hybridIdx, cfg) {
+                window.ElectronCloud.Visualization.computeIsosurfaceAsync(
+                    cfg,
+                    null, // onProgress
+                    function (result) {
+                        // Worker 完成，填充几何体
+                        fillGroupWithResult(group, result, cfg.color);
+                        console.log(`杂化轨道 ${hybridIdx} 等值面计算完成 (Worker)`);
+                    },
+                    function (error) {
+                        console.error(`Worker 等值面计算失败 (轨道 ${hybridIdx}):`, error);
+                    }
+                );
+            })(overlayGroup, hybridIndex, workerParams);
+
         } else {
-            overlays.push(null);
+            // 【同步】回退到主线程计算
+            fillGroupSync(overlayGroup, orbitalParams, coeffs, bound, unifiedIsovalue, atomType, color);
         }
     }
 
     return overlays;
 
-    // 内部函数：创建单个杂化轨道的等值面
-    function createSingleHybridContour(orbitalParams, coeffs, hybridIndex, pointIndices, color) {
-        const overlayGroup = new THREE.Group();
+    // 将 Worker 结果填充到 Group
+    function fillGroupWithResult(group, result, color) {
+        const usePhase = state.usePhaseColoring;
+        const colorPos = usePhase ? { r: 0.0, g: 0.75, b: 1.0 } : color;
+        const colorNeg = usePhase ? { r: 1.0, g: 0.27, b: 0.0 } : color;
 
-        // 波函数计算
+        addComponentsToGroup(group, result.positive, colorPos);
+        addComponentsToGroup(group, result.negative, colorNeg);
+    }
+
+    function addComponentsToGroup(group, components, meshColor) {
+        for (const vertices of components) {
+            if (vertices.length < 9) continue;
+
+            const positions = new Float32Array(vertices);
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.computeVertexNormals();
+
+            const colors = new Float32Array(vertices.length);
+            for (let i = 0; i < vertices.length / 3; i++) {
+                colors[i * 3] = meshColor.r;
+                colors[i * 3 + 1] = meshColor.g;
+                colors[i * 3 + 2] = meshColor.b;
+            }
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+                vertexColors: true, transparent: true, opacity: 0.6,
+                side: THREE.DoubleSide, wireframe: true, wireframeLinewidth: 1.0
+            }));
+            mesh.layers.set(1);
+            group.add(mesh);
+        }
+    }
+
+    // 同步计算回退
+    function fillGroupSync(group, orbitalParams, coeffs, bound, isovalue, atomType, color) {
         function calcPsi(x, y, z) {
             const r = Math.sqrt(x * x + y * y + z * z);
             if (r < 1e-10) return 0;
@@ -1395,40 +1621,8 @@ window.ElectronCloud.Visualization.createHybridContourOverlays = function () {
             return psi;
         }
 
-        // 计算该轨道点的95%分位密度阈值
-        const positions = state.points.geometry.attributes.position.array;
-        const psiValues = [];
-        let maxR = 0;
+        const result = window.MarchingCubes.run(calcPsi, { min: [-bound, -bound, -bound], max: [bound, bound, bound] }, 160, isovalue);
 
-        for (const pointIdx of pointIndices) {
-            const i3 = pointIdx * 3;
-            const x = positions[i3];
-            const y = positions[i3 + 1];
-            const z = positions[i3 + 2];
-            const r = Math.sqrt(x * x + y * y + z * z);
-            if (r > maxR) maxR = r;
-
-            // 计算此处的 psi
-            psiValues.push(Math.abs(calcPsi(x, y, z)));
-        }
-
-        if (psiValues.length < 50) return null;
-
-        psiValues.sort((a, b) => b - a);  // 从大到小排序
-        // 95% 等值面：取第 95% 位置的值（即只有 5% 的点的 |ψ| 低于此阈值）
-        // 等值面将包围内层 95% 的点
-        const isovalue = psiValues[Math.floor(psiValues.length * 0.95)] || 0.0001;
-
-        // Marching Cubes
-        // 【关键修复】使用该杂化轨道点的实际最远距离 maxR
-        // 而非 state.farthestDistance（可能是旧值或其他轨道的值）
-        const bound = Math.max(maxR, estimatedRadius) * 1.5;
-        const resolution = 160; // 与单轨模式统一
-
-        const result = window.MarchingCubes.run(calcPsi, { min: [-bound, -bound, -bound], max: [bound, bound, bound] }, resolution, isovalue);
-
-        // 添加网格
-        // 添加网格
         function addLobeMeshes(triangles, meshColor) {
             if (triangles.length < 9) return;
             const components = window.MarchingCubes.separate(triangles);
@@ -1449,26 +1643,15 @@ window.ElectronCloud.Visualization.createHybridContourOverlays = function () {
                     side: THREE.DoubleSide, wireframe: true, wireframeLinewidth: 1.0
                 }));
                 mesh.layers.set(1);
-                overlayGroup.add(mesh);
+                group.add(mesh);
             }
         }
 
-        // 杂化轨道颜色逻辑
-        if (state.usePhaseColoring) {
-            const colorPos = { r: 0.0, g: 0.75, b: 1.0 }; // 冰蓝
-            const colorNeg = { r: 1.0, g: 0.27, b: 0.0 }; // 橙色
-            addLobeMeshes(result.positive, colorPos);
-            addLobeMeshes(result.negative, colorNeg);
-        } else {
-            // 默认显示区分颜色
-            addLobeMeshes(result.positive, color);
-            addLobeMeshes(result.negative, color);
-        }
-
-        if (overlayGroup.children.length > 0) {
-            return overlayGroup;
-        }
-        return null;
+        const usePhase = state.usePhaseColoring;
+        const colorPos = usePhase ? { r: 0.0, g: 0.75, b: 1.0 } : color;
+        const colorNeg = usePhase ? { r: 1.0, g: 0.27, b: 0.0 } : color;
+        addLobeMeshes(result.positive, colorPos);
+        addLobeMeshes(result.negative, colorNeg);
     }
 };
 
