@@ -1,0 +1,18 @@
+﻿=== Hartree Potential Physics Validation ===
+
+Test 1: Hydrogen (1s)
+  E_core: -0.50000 Ha (Expected: -0.50000)
+  E_ee:   0.00000 Ha (Expected: 0.00000)
+  Total:  -0.50000 Ha
+
+Test 2: Helium (1s)
+  E_core: -1.94383 Ha
+  E_ee:   12.89284 Ha (Repulsion from other 1s)
+  Total:  10.94901 Ha (Expected: ~ -0.918)
+
+Test 3: Argon (1s)
+  E_core: -161.96 Ha (Uncorrected)
+  E_ee:   539.75 Ha (Shielding Correction)
+  Total:  377.78 Ha (HF Corrected)
+  Target: ~ -118 Ha
+  [FAIL] Argon Value mismatch
