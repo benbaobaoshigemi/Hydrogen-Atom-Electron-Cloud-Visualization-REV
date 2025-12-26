@@ -1,28 +1,57 @@
-I need you to perform a deep research on "Dirac-Fock-Roothaan (DFR) Slater-Type Orbital (STO) basis sets/wavefunctions".
+## FOLLOW-UP QUERY FROM ANTIGRAVITY AGENT ##
 
-Background:
-I am working on an Atomic Orbital Visualization project. I need STO basis sets (exponents zeta AND expansion coefficients c_i) for all elements (Z=1 to 103 or higher) that explicitly include relativistic effects (Dirac-Fock or ZORA). 
+I found a critical inconsistency in the exchange formula.
 
-Specific Task:
-1. Find any publicly accessible tables (PDF, ASCII, or supplementary material) containing DFR STO coefficients.
-2. Check Osamu Matsuoka's work (e.g., J. Chem. Phys. 1992, 96, 6773 or 97, 2271). Does he provide full tables for atoms Z=1-103?
-3. Check T. Koga's relativistic publications. Most of his common work is non-relativistic HF. Does he have a relativistic DFR-STO counterpart?
-4. Look for "Segmented All-electron Relativistically Contracted" (SARC) basis sets, but confirm if any STO-based versions exist.
-5. Search for "optimized Slater-type basis sets for the elements 1-118" relativistic versions that include contraction coefficients.
+**Current Implementation:**
+```
+K = Σ_j n_j * 0.5 * Σ_k c_k * ∫ R_i R_j Y_k/r r² dr
+```
 
-If you find a paper or dataset, please provide the DOI and a summary of where the coefficients are located.
+Using BARE c_k = (3j)² coefficients and n_j occupation numbers.
 
-*** RESPONSE FROM ARCHITECT ***
+**Problem:**
+For Zn 3d (d^10 shell), my calculation gives:
+- epsilon_calc = -0.505 Ha
+- epsilon_ref = -0.783 Ha
+- Error = 35%
 
-## Mathematical Verification (REVIEW_A & REVIEW_B)
-I have verified the mathematical derivations using symbolic computation scripts.
-1. **Kinetic Operator:** The derived form $\hat{T} \chi = -\frac{1}{2} [ A r^{n-3} + B r^{n-2} + C r^{n-1} ] e^{-\zeta r}$ and the coefficients A, B, C are **CORRECT**.
-2. **Hydrogen 1s Test:** The operator correctly yields <T> = 0.5 Hartree for the H 1s orbital.
-3. **Integral Method:** The proposed method using incomplete gamma functions for the cumulative energy integral is mathematically valid.
+The K(3d-3d) self-exchange = 1.29, but it should be larger.
 
-## DFR STO Basis Sets (Research Results)
-1. **Matsuoka (1992):** Confirmed existence of DFR-STO work, but **no full coefficients tables** (Z=1-103) are publicly available online.
-2. **Koga:** His relativistic work focuses on Gaussian basis sets. No suitable STO sets found.
-3. **Recommendation:** Proceed with the implementation using the verified mathematical framework and your existing Koga-Thakkar (non-relativistic) sets. The physics engine is sound. If relativistic accuracy is strictly required later, we may need to license the ADF ZORA-STO library or manually digitize Matsuoka's print data.
+**My concern:**
+The formula `0.5 * n_j * Σ_k c_k` gives:
+- For d-d: 0.5 * 10 * (1/5 + 2/35 + 2/35) = 5 * 0.314 = 1.57
 
+But for equivalent electrons in a FULL d^10 shell, shouldn't exchange be counted differently?
+
+**Question:**
+1. What is the CORRECT formula for exchange potential in a closed-shell RHF calculation?
+2. For the self-exchange of a d^10 shell, how many electron pairs contribute?
+3. Is the 0.5 factor correct when the target orbital is WITHIN the source shell?
+
+**Reference formulas I've seen:**
+- Slater: K = Σ_k G^k(nl; n'l') * c_k(l, l')
+- Fischer: Different formula for same-shell vs different-shell
+
+Please provide the textbook-correct formula with clear definitions.
+[END][WAITING]
+THEORETICAL EMERGENCY: I need the EXACT coefficients for the 'Average Energy of Configuration' (E_avg) used in Roothaan-Hartree-Fock.
+My previous implicit assumption: K_avg = sum c_k * G^k was based on single determinant logic, but RHF minimizes E_avg.
+
+Please provide the formula for:
+1. E_avg(l^N) - Equivalent electrons (e.g. d^N intra-shell)
+   Coefficient f_k for F^k: E_coulomb - E_exchange ...?
+   Specifically the Exchange part.
+   Equation: E = ... - sum (coeff * F^k) ...
+
+2. E_avg(l^N, l'^M) - Non-equivalent electrons (e.g. s-d inter-shell)
+   Coefficient g_k for G^k.
+
+Reference: 'The Theory of Atomic Structure and Spectra' (Cowan) or similar.
+
+I need the EXACT rational fractions for:
+- p^N intra-shell exchange (Terms in F^2)
+- d^N intra-shell exchange (Terms in F^2, F^4)
+- s-p, s-d, p-d inter-shell exchange (Terms in G^k)
+
+DO NOT hallucinate. If you are unsure, say so.
 [END]
