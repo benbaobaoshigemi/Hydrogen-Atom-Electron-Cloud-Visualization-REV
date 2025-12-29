@@ -1222,13 +1222,8 @@ window.ElectronCloud.Scene.onSamplingCompleted = function () {
     } else if (!state.isHybridMode && window.ElectronCloud.Visualization.updateContourOverlay) {
         // 【性能优化】普通模式也进行预计算
         console.log('开始预计算普通轨道等值面...');
-        window.ElectronCloud.Visualization.updateContourOverlay();
-
-        // 预计算后隐藏，等用户开启开关
-        if (state.contourOverlay) {
-            state.contourOverlay.visible = false;
-        }
-        console.log('普通轨道等值面预计算完成');
+        window.ElectronCloud.Visualization.updateContourOverlay({ precompute: true, visible: false, forceRebuild: true });
+        console.log('普通轨道等值面预计算已启动');
     }
 
     // 【新增】采样完成，重新启用相位显示开关（比照模式下保持禁用）

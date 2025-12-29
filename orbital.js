@@ -22,9 +22,9 @@ window.ElectronCloud.Orbital.startDrawing = function () {
         return;
     }
 
-    // 【v11.0】杂化模式下验证轨道组合是否为支持的标准构型
+    // 杂化模式下验证轨道组合是否为支持的标准构型
     if (state.isHybridMode && !state.hybridizationValid) {
-        alert('当前轨道组合不支持杂化计算\\n\\n仅支持：sp、sp²、sp³、sp³d、sp³d²');
+        alert('当前轨道组合不支持杂化计算\n\n仅支持：sp、sp²、sp³、sp³d、sp³d²');
         return;
     }
 
@@ -643,6 +643,122 @@ window.ElectronCloud.Orbital.initTheoryData = function () {
             theory: { centers: angularCenters, values: angularTheoryValues }
         };
 
+        // ==================== 能量数据预计算（纯理论网格，不依赖采样） ====================
+        // 目的：确保 potential/dEdr/localEnergy 图表在未采样或采样很少时也可用。
+        // 使用与理论径向曲线相同的 centers 网格，避免“能量图被采样网格绑架”。
+        try {
+            const numBins = radialBins;
+            const theoryE = new Float32Array(numBins);
+            const theoryDEdr = new Float32Array(numBins);
+
+            if (window.Hydrogen.calculateCumulativeOrbitalEnergy) {
+                for (const p of paramsList) {
+                    const pZ = window.SlaterBasis && window.SlaterBasis[atomType]
+                        ? window.SlaterBasis[atomType].Z
+                        : 1;
+                    const res = window.Hydrogen.calculateCumulativeOrbitalEnergy(
+                        p.n, p.l, pZ, atomType, radialCenters
+                    );
+                    if (!res) continue;
+                    for (let j = 0; j < numBins; j++) {
+                        theoryE[j] += (res.E && res.E.length > j) ? res.E[j] : 0;
+                        theoryDEdr[j] += (res.dEdr && res.dEdr.length > j) ? res.dEdr[j] : 0;
+                    }
+                }
+                // 取平均
+                const count = Math.max(1, paramsList.length);
+                for (let j = 0; j < numBins; j++) {
+                    theoryE[j] /= count;
+                    theoryDEdr[j] /= count;
+                }
+            }
+
+            // dEdrLog（symlog）
+            const symlog = (v) => {
+                const absV = Math.abs(v);
+                if (absV < 1e-12) return null;
+                const sign = v < 0 ? -1 : 1;
+                return sign * (Math.log(absV) / Math.log(100));
+            };
+            const dEdrLogTheoryPoints = [];
+            for (let i = 0; i < numBins; i++) {
+                const r = radialCenters[i];
+                if (r <= 0) continue;
+                const rLog = Math.log10(r);
+                if (theoryDEdr[i] !== 0) {
+                    const val = symlog(theoryDEdr[i]);
+                    if (val !== null) dEdrLogTheoryPoints.push({ x: rLog, y: val });
+                }
+            }
+
+            // 局域能量（诊断量）数据：epsDensity=ε·P(r)，Tdensity=(ε−V_eff)·P(r)
+            const theoryTdensity = new Float32Array(numBins);
+            const theoryEpsDensity = new Float32Array(numBins);
+
+            // ε：来自 SlaterBasis.energies（多轨道取平均）
+            let avgEpsilon = 0;
+            let epsilonCount = 0;
+            for (let k = 0; k < orbitals.length; k++) {
+                const orbitalKey = orbitals[k];
+                const baseKey = orbitalKey.replace(/[xyz]/g, '').replace(/_.*/, '');
+                const energies = window.SlaterBasis && window.SlaterBasis[atomType]
+                    ? window.SlaterBasis[atomType].energies
+                    : null;
+                if (energies && energies[baseKey] !== undefined) {
+                    avgEpsilon += energies[baseKey];
+                    epsilonCount++;
+                }
+            }
+            avgEpsilon = epsilonCount > 0 ? avgEpsilon / epsilonCount : -0.5;
+
+            for (let i = 0; i < numBins; i++) {
+                const r = radialCenters[i];
+
+                // 理论概率密度 P(r)
+                let theoryPDF;
+                if (isHybridMode && window.Hydrogen.hybridRadialPDF) {
+                    theoryPDF = window.Hydrogen.hybridRadialPDF(paramsList, r, atomZ, 1, atomType);
+                } else {
+                    let sumPDF = 0;
+                    for (const p of paramsList) {
+                        sumPDF += window.Hydrogen.radialPDF(p.n, p.l, r, atomZ, 1, atomType);
+                    }
+                    theoryPDF = sumPDF / Math.max(1, paramsList.length);
+                }
+
+                // T_loc(r) = ε - V_eff(r)
+                let sumTloc = 0;
+                for (let k = 0; k < orbitals.length; k++) {
+                    const orbitalKey = orbitals[k];
+                    const baseKey = orbitalKey.replace(/[xyz]/g, '').replace(/_.*/, '');
+                    if (window.Hydrogen.calculateLocalKineticEnergy) {
+                        sumTloc += window.Hydrogen.calculateLocalKineticEnergy(r, avgEpsilon, atomZ, atomType, baseKey);
+                    } else {
+                        sumTloc += window.Hydrogen.calculateReconstructedKineticEnergy(r, avgEpsilon, atomZ, atomType, baseKey);
+                    }
+                }
+                const Tloc = sumTloc / Math.max(1, orbitals.length);
+
+                theoryTdensity[i] = Tloc * theoryPDF;
+                theoryEpsDensity[i] = avgEpsilon * theoryPDF;
+            }
+
+            state.backgroundChartData.energy = {
+                centers: radialCenters,
+                potential: theoryE,
+                dEdr: theoryDEdr,
+                dEdrLog: { theoryPoints: dEdrLogTheoryPoints },
+                zeff: new Float32Array(radialZeff),
+                localEnergy: {
+                    Tdensity: theoryTdensity,
+                    epsDensity: theoryEpsDensity,
+                    epsilon: avgEpsilon
+                }
+            };
+        } catch (e) {
+            console.error('初始化理论能量数据失败:', e);
+        }
+
         console.log('理论曲线数据初始化完成，轨道数:', paramsList.length);
 
     } catch (error) {
@@ -828,7 +944,7 @@ window.ElectronCloud.Orbital.updateBackgroundChartData = function () {
                         }
 
                         for (let j = 0; j < numBins && j < res.E.length; j++) {
-                            // theoryE[j] += res.E[j]; // 【修改】不再使用物理层返回的梯形积分结果
+                            theoryE[j] += res.E[j];
                             theoryDEdr[j] += (res.dEdr ? res.dEdr[j] : 0);
                             theoryDVnucDr[j] += localDVnucDr[j];
                             theoryVee[j] += (res.Vee ? res.Vee[j] : 0);  // 【新增】累加Vee
@@ -838,81 +954,11 @@ window.ElectronCloud.Orbital.updateBackgroundChartData = function () {
                 // 取平均
                 const count = paramsWithAtom.length;
                 for (let j = 0; j < numBins; j++) {
-                    // theoryE[j] /= count;
+                    theoryE[j] /= count;
                     theoryDEdr[j] /= count;
                     theoryDVnucDr[j] /= count;
                     theoryVee[j] /= count;  // 【新增】平均Vee
                 }
-            }
-
-
-            // 3. 计算采样能量曲线
-            //    【物理公式】使用与理论曲线同源的公式，用采样RDF替换理论RDF
-            //    理论公式: dEdr = dV_nuc/dr + P(r) × Vee
-            //    采样公式: dEdr_exp = dV_nuc/dr + f(r) × Vee （f(r)是采样PDF）
-            //    积分公式: E(R) = ∫₀^R dEdr dr
-            const expE = new Float32Array(numBins);
-            const expDEdr = new Float32Array(numBins);
-
-            const totalSamples = radialHist.counts.reduce((a, b) => a + b, 0);
-            const dr = radialHist.dr || (radialCenters[1] - radialCenters[0]);
-
-            // 【关键修复】重新计算理论积分曲线，使用与采样曲线完全一致的矩形积分法（中点法则）
-            // 物理层的 calculateCumulativeOrbitalEnergy 使用梯形法则且假设 dE/dr(0)=0，
-            // 这在近核处（dE/dr极大）会导致显著的系统性低估（丢失了第一项的一半能量）。
-            // 使用中点法则（Rectangular Sum）能更准确地捕捉第一项的贡献，且保证了理论与采样在方法上的一致性。
-            if (paramsWithAtom.length > 0) {
-                let currentTheoryE = 0;
-                for (let i = 0; i < numBins; i++) {
-                    currentTheoryE += theoryDEdr[i] * dr;
-                    theoryE[i] = currentTheoryE;
-                }
-            }
-
-            if (totalSamples > 0) {
-                // 从 theoryDEdr 中反推 dV_nuc/dr 和 Vee 的贡献
-                // 理论公式: theoryDEdr[i] = dV_nuc_dr[i] + theoryPDF[i] * Vee[i]
-                // 如果我们直接替换 theoryPDF -> sampledPDF，会得到：
-                // expDEdr[i] = dV_nuc_dr[i] + sampledPDF[i] * Vee[i]
-                // 
-                // 但由于 dV_nuc_dr 和 Vee 没有分开返回，我们用另一种等效方式：
-                // 设 dV_nuc_dr = theoryDEdr - theoryPDF * Vee
-                // 
-                // 【简化策略】直接使用采样权重缩放理论能量密度
-                // expDEdr[i] = theoryDEdr[i] × (sampledPDF[i] / theoryPDF[i])
-                // 当 sampledPDF[i] 为零时，该区域的贡献为零
-
-                for (let i = 0; i < numBins; i++) {
-                    const r = radialCenters[i];
-
-                    const sampledPDF = radialHist.counts[i];
-
-                    // 计算理论PDF: P(r) 在中心的点值
-                    let theoryPDF = 0;
-                    for (const p of paramsList) {
-                        theoryPDF += window.Hydrogen.radialPDF(p.n, p.l, r, Z, 1, atomType);
-                    }
-                    theoryPDF /= paramsList.length;
-
-                    // 【关键修复】在理论PDF很小的区域，直接使用理论值
-                    const pdfThreshold = 1e-6;
-                    if (theoryPDF < pdfThreshold) {
-                        expDEdr[i] = theoryDEdr[i];
-                    } else {
-                        // 【新方法】直接使用理论e-e排斥势能 Vee(r)
-                        // 公式: dE/dr = dV_nuc/dr + P_sampled(r) * Vee(r)
-                        expDEdr[i] = theoryDVnucDr[i] + sampledPDF * theoryVee[i];
-                    }
-                }
-
-                // 使用矩形法则直接累加直方图（符合用户"逐个bin累加"的要求）
-                let currentE = 0;
-                for (let i = 0; i < numBins; i++) {
-                    currentE += expDEdr[i] * dr;
-                    expE[i] = currentE;
-                }
-
-
             }
 
             // 4. 计算对数坐标数据 (symlog: 保留符号的对数变换)
@@ -925,9 +971,6 @@ window.ElectronCloud.Orbital.updateBackgroundChartData = function () {
                 return sign * (Math.log(absV) / Math.log(100));
             };
 
-            // dEdr 的对数图保持原样或也复用 (用户主要关注 V(r))
-            // 这里我们也复用 theoryDEdr 和 expDEdr 以保持一致性
-            const dEdrLogExpPoints = [];
             const dEdrLogTheoryPoints = [];
 
             for (let i = 0; i < numBins; i++) {
@@ -940,10 +983,6 @@ window.ElectronCloud.Orbital.updateBackgroundChartData = function () {
                     if (val !== null) dEdrLogTheoryPoints.push({ x: rLog, y: val });
                 }
 
-                if (expDEdr[i] !== 0) {
-                    const val = symlog(expDEdr[i]);
-                    if (val !== null) dEdrLogExpPoints.push({ x: rLog, y: val });
-                }
             }
 
             // 5. 计算 Z_eff 数据
@@ -979,17 +1018,17 @@ window.ElectronCloud.Orbital.updateBackgroundChartData = function () {
                 theoryTdensity = new Float32Array(numBins);
                 theoryEpsDensity = new Float32Array(numBins);
 
-                // 获取轨道本征值 ε
+                // 获取轨道本征值 ε（来自 SlaterBasis.energies；orbitals 数组本身不携带 energy 字段）
                 avgEpsilon = 0;
                 let epsilonCount = 0;
                 for (let k = 0; k < orbitals.length; k++) {
                     const orbitalKey = orbitals[k];
                     const baseKey = orbitalKey.replace(/[xyz]/g, '').replace(/_.*/, '');
-                    const basisData = window.SlaterBasis && window.SlaterBasis[atomType]
-                        && window.SlaterBasis[atomType].orbitals
-                        && window.SlaterBasis[atomType].orbitals[baseKey];
-                    if (basisData && basisData.length > 0 && basisData[0].energy !== undefined) {
-                        avgEpsilon += basisData[0].energy;
+                    const energies = window.SlaterBasis && window.SlaterBasis[atomType]
+                        ? window.SlaterBasis[atomType].energies
+                        : null;
+                    if (energies && energies[baseKey] !== undefined) {
+                        avgEpsilon += energies[baseKey];
                         epsilonCount++;
                     }
                 }
@@ -1011,9 +1050,11 @@ window.ElectronCloud.Orbital.updateBackgroundChartData = function () {
                     for (let k = 0; k < orbitals.length; k++) {
                         const orbitalKey = orbitals[k];
                         const baseKey = orbitalKey.replace(/[xyz]/g, '').replace(/_.*/, '');
-                        sumTrec += window.Hydrogen.calculateReconstructedKineticEnergy(
-                            r, avgEpsilon, Z, atomType, baseKey
-                        );
+                        if (window.Hydrogen.calculateLocalKineticEnergy) {
+                            sumTrec += window.Hydrogen.calculateLocalKineticEnergy(r, avgEpsilon, Z, atomType, baseKey);
+                        } else {
+                            sumTrec += window.Hydrogen.calculateReconstructedKineticEnergy(r, avgEpsilon, Z, atomType, baseKey);
+                        }
                     }
                     const Trec = sumTrec / orbitals.length;
 
@@ -1022,47 +1063,15 @@ window.ElectronCloud.Orbital.updateBackgroundChartData = function () {
                 }
             }
 
-            const expEpsDensity = new Float32Array(numBins);
-            const expTdensity = new Float32Array(numBins);
-            const localTotalSamples = radialHist.counts.reduce((a, b) => a + b, 0);
-            const localDr = radialHist.dr || (radialCenters[1] - radialCenters[0]);
-
-            for (let i = 0; i < numBins; i++) {
-                const sampledPDF = localTotalSamples > 0 ? (radialHist.counts[i] / localTotalSamples) / localDr : 0;
-                const r = radialCenters[i];
-
-                // 【算法决策 v11.3 - 纯理论可视化】
-                // 计算理论PDF用于能量展示，彻底消除蒙特卡洛噪声
-                let theoryPDF = 0;
-                if (paramsList.length > 0 && window.Hydrogen.radialPDF) {
-                    for (const p of paramsList) {
-                        theoryPDF += window.Hydrogen.radialPDF(p.n, p.l, r, Z, 1, atomType);
-                    }
-                    theoryPDF /= paramsList.length;
-                }
-
-                // 核心修改：使用理论PDF计算“采样”能量密度
-                // 这样图表展示的是完美的物理分布，不再随采样抖动
-                expEpsDensity[i] = avgEpsilon * theoryPDF;
-
-                // T_rec = theoryTdensity / theoryPDF（当 theoryPDF 不为零时）
-                const Trec = theoryPDF > 1e-15 ? (theoryTdensity[i] / theoryPDF) : 0;
-
-                // 这里的 expTdensity 虽已废弃不用，但也同步改为纯理论以保持数据一致性
-                expTdensity[i] = Trec * theoryPDF;
-            }
-
             state.backgroundChartData.energy = {
                 centers: radialCenters,
-                potential: { exp: expE, theory: theoryE },
-                dEdr: { exp: expDEdr, theory: theoryDEdr },
-                dEdrLog: { expPoints: dEdrLogExpPoints, theoryPoints: dEdrLogTheoryPoints },
+                potential: theoryE,
+                dEdr: theoryDEdr,
+                dEdrLog: { theoryPoints: dEdrLogTheoryPoints },
                 zeff: theoryZeff,
                 localEnergy: {
                     Tdensity: theoryTdensity,     // T_rec(r) × P(r)
                     epsDensity: theoryEpsDensity, // ε × P(r)
-                    expDensity: expEpsDensity,    // ε × f(r)
-                    expTdensity: expTdensity,     // T_rec(r) × f(r) - 用于浮动柱状图
                     epsilon: avgEpsilon
                 }
             };
@@ -1094,28 +1103,38 @@ window.ElectronCloud.Orbital.drawProbabilityChart = function (final = true) {
 
     const type = ui.plotTypeSelect ? ui.plotTypeSelect.value : 'radial';
 
+    // 确保能量图有可用的纯理论数据（不依赖采样）
+    if (['potential', 'dEdr', 'localEnergy'].includes(type) && (!state.backgroundChartData || !state.backgroundChartData.energy)) {
+        if (window.ElectronCloud?.Orbital?.initTheoryData) {
+            window.ElectronCloud.Orbital.initTheoryData();
+        }
+    }
+
     // 检查是否是对比模式
     const isCompareMode = ui.compareToggle && ui.compareToggle.checked;
 
-    if (isCompareMode && Object.keys(state.orbitalSamplesMap).length > 0) {
-        let chartData = state.orbitalSamplesMap;
+    // 【关键修复】对比模式下图表必须优先走 compare 渲染路径；否则会落入“多选/平均”的后台数据渲染，表现成多选模式
+    // 即使采样尚未开始（orbitalSamplesMap 为空），compare 渲染也应能显示纯理论曲线（由 DataPanel.renderChartCompare 兜底）
+    if (isCompareMode && ['radial', 'angular', 'phi', 'potential', 'dEdr', 'localEnergy'].includes(type)) {
+        let chartData = state.orbitalSamplesMap || {};
 
         // 【性能优化】如果是滚动生成过程中的动态更新（!final），只使用最近的数据切片
         // 避免全量重绘导致卡顿（全量数据可能包含百万个点）
-        if (!final) {
-            chartData = {};
+        if (!final && chartData && Object.keys(chartData).length > 0) {
+            const sliced = {};
             // 只取每条轨道最近的 20000 个点，足够显示分布趋势且极快
             const SLICE_SIZE = 20000;
-            for (const key in state.orbitalSamplesMap) {
-                const samples = state.orbitalSamplesMap[key];
-                if (samples.length > SLICE_SIZE) {
-                    chartData[key] = samples.slice(-SLICE_SIZE);
+            for (const key in chartData) {
+                const samples = chartData[key];
+                if (samples && samples.length > SLICE_SIZE) {
+                    sliced[key] = samples.slice(-SLICE_SIZE);
                 } else {
-                    chartData[key] = samples;
+                    sliced[key] = samples;
                 }
             }
-        } else {
-            console.log('使用对比模式散点图渲染，轨道数量:', Object.keys(state.orbitalSamplesMap).length);
+            chartData = sliced;
+        } else if (Object.keys(chartData).length > 0) {
+            console.log('使用对比模式散点图渲染，轨道数量:', Object.keys(chartData).length);
         }
 
         DataPanel.renderChartCompare(chartData, type);
@@ -1138,30 +1157,23 @@ window.ElectronCloud.Orbital.drawProbabilityChart = function (final = true) {
         console.log(`使用预计算能量数据渲染图表[${type}]`);
 
         if (type === 'potential') {
-            const expPoints = c.map((r, i) => ({ x: r, y: e.potential.exp[i] }));
-            const theoryPoints = c.map((r, i) => ({ x: r, y: e.potential.theory[i] }));
+            const theoryPoints = c.map((r, i) => ({ x: r, y: e.potential[i] }));
             const zeffData = e.zeff ? Array.from(e.zeff) : null;
-            DataPanel.renderChartPotential({ points: expPoints }, { points: theoryPoints, zeff: zeffData });
+            DataPanel.renderChartPotential({ points: theoryPoints, zeff: zeffData });
         } else if (type === 'dEdr') {
-            const expPoints = c.map((r, i) => ({ x: r, y: e.dEdr.exp[i] }));
-            const theoryPoints = c.map((r, i) => ({ x: r, y: e.dEdr.theory[i] }));
-            // 【新增】传递 Z_eff 数据以在 dV/dr 图表中显示
+            const theoryPoints = c.map((r, i) => ({ x: r, y: e.dEdr[i] }));
             const zeffData = e.zeff ? Array.from(e.zeff) : null;
-            DataPanel.renderChartDEdr({ points: expPoints }, { points: theoryPoints, zeff: zeffData });
+            DataPanel.renderChartDEdr({ points: theoryPoints, zeff: zeffData });
         } else if (type === 'dEdrLog') {
-            DataPanel.renderChartDEdrLog({ points: e.dEdrLog.expPoints }, { points: e.dEdrLog.theoryPoints });
+            DataPanel.renderChartDEdrLog({ points: e.dEdrLog.theoryPoints });
         } else if (type === 'localEnergy' && e.localEnergy) {
-            const expData = {
-                expDensity: Array.from(e.localEnergy.expDensity),
-                expTdensity: Array.from(e.localEnergy.expTdensity)
-            };
             const theoryData = {
                 centers: Array.from(c),
                 Tdensity: Array.from(e.localEnergy.Tdensity),
                 epsDensity: Array.from(e.localEnergy.epsDensity),
                 epsilon: e.localEnergy.epsilon
             };
-            DataPanel.renderChartLocalEnergy(expData, theoryData);
+            DataPanel.renderChartLocalEnergy(theoryData);
         }
         return;
     }

@@ -1636,18 +1636,7 @@ window.ElectronCloud.UI.updateAngular3DToggleState = function () {
         return;
     }
 
-    // 【新增】多选模式禁用3D角向形状
-    if (ui.multiselectToggle && ui.multiselectToggle.checked) {
-        ui.angular3dToggle.disabled = true;
-        if (angular3dLabel) {
-            angular3dLabel.style.opacity = '0.5';
-            angular3dLabel.style.cursor = 'not-allowed';
-            angular3dLabel.title = '多选模式下不可用';
-        }
-        // 同步更新轨道轮廓状态
-        window.ElectronCloud.UI.updateContour3DToggleState();
-        return;
-    }
+    // 多选模式：允许角向分布3D显示（但仍受采样完成/有数据等约束）
 
     // 【杂化模式】禁用3D角向形状
     if (state.isHybridMode === true) {
@@ -1699,6 +1688,25 @@ window.ElectronCloud.UI.updateContour3DToggleState = function () {
     if (!contour3dToggle) return;
 
     const contour3dLabel = document.querySelector('label[for="contour-3d-toggle"]');
+
+    // 多选模式：禁用轨道轮廓（改用角向轮廓）
+    if (ui && ui.multiselectToggle && ui.multiselectToggle.checked) {
+        // 强制关闭并隐藏（不触发任何提示）
+        if (contour3dToggle.checked) {
+            contour3dToggle.checked = false;
+        }
+        if (state.contourOverlay) {
+            state.contourOverlay.visible = false;
+        }
+
+        contour3dToggle.disabled = true;
+        if (contour3dLabel) {
+            contour3dLabel.style.opacity = '0.5';
+            contour3dLabel.style.cursor = 'not-allowed';
+            contour3dLabel.title = '多选模式下禁用（请使用角向轮廓）';
+        }
+        return;
+    }
 
     // 【修改】比照模式下不禁用轨道轮廓，允许多色显示
 
@@ -2140,8 +2148,8 @@ window.ElectronCloud.UI.onMultiselectToggle = function () {
             ui.orbitalSelect.size = 5;
         }
 
-        // 多选模式下禁用角向分布曲线选项
-        window.ElectronCloud.UI.disableAngularPlotOption();
+        // 多选模式：仅保留概率密度图（径向/θ/φ），禁用能量类图表
+        window.ElectronCloud.UI.setPlotTypeRestrictionsForMultiselect(true);
 
         window.ElectronCloud.UI.updateSelectionCount();
         window.ElectronCloud.UI.refreshSelectStyles();
@@ -2150,8 +2158,8 @@ window.ElectronCloud.UI.onMultiselectToggle = function () {
         // 重新启用显示开关功能（3D角向形状在多选模式下也是可用的，所以这里不需要特别处理）
         // window.ElectronCloud.UI.enableAngular3DToggle(); // 多选模式下没有禁用，所以退出时也不需要启用
 
-        // 【新增】重新启用角向分布曲线选项
-        window.ElectronCloud.UI.enableAngularPlotOption();
+        // 退出多选模式：恢复全部图表类型
+        window.ElectronCloud.UI.setPlotTypeRestrictionsForMultiselect(false);
 
         if (label) {
             label.textContent = '选择轨道';
@@ -3250,6 +3258,7 @@ window.ElectronCloud.UI.createCustomSelect = function (select) {
         const customOption = document.createElement('div');
         customOption.className = 'custom-option';
         if (option.selected) customOption.classList.add('selected');
+        if (option.disabled) customOption.classList.add('disabled');
         customOption.textContent = option.text;
         customOption.dataset.value = option.value;
         customOption.dataset.index = index; // 存储索引用于事件委托
@@ -3264,6 +3273,10 @@ window.ElectronCloud.UI.createCustomSelect = function (select) {
         e.stopPropagation();
 
         const index = parseInt(customOption.dataset.index, 10);
+        // 禁用选项不可选
+        if (select.options[index] && select.options[index].disabled) {
+            return;
+        }
         // 更新原生 select
         select.selectedIndex = index;
         select.dispatchEvent(new Event('change'));
@@ -3300,6 +3313,67 @@ window.ElectronCloud.UI.createCustomSelect = function (select) {
 
     // 【性能优化】移除此处的全局click事件注册，改由init()中统一事件委托处理
     // 避免每个select都注册一个全局监听器
+};
+
+/**
+ * 通用：同步自定义下拉框中每个选项的 disabled 样式
+ *（用于运行时动态禁用/启用 option，例如多选模式禁用能量图表）
+ */
+window.ElectronCloud.UI.updateCustomSelectDisabledOptions = function (select) {
+    if (!select) return;
+    const container = select.nextElementSibling;
+    if (!container || !container.classList.contains('custom-select-container')) return;
+
+    const customOptions = container.querySelector('.custom-select-options');
+    if (!customOptions) return;
+
+    Array.from(select.options).forEach((option, index) => {
+        const customOption = customOptions.children[index];
+        if (!customOption) return;
+
+        if (option.disabled) {
+            customOption.classList.add('disabled');
+            customOption.style.pointerEvents = 'none';
+        } else {
+            customOption.classList.remove('disabled');
+            customOption.style.pointerEvents = 'auto';
+        }
+    });
+
+    // 同步触发器文本
+    const trigger = container.querySelector('.custom-select-trigger');
+    if (trigger && select.selectedIndex >= 0) {
+        trigger.textContent = select.options[select.selectedIndex].text;
+    }
+};
+
+/**
+ * 多选模式：仅保留概率密度图（径向/θ/φ），禁用能量类图表。
+ * 进入多选时若当前是能量图表，自动回退到径向分布。
+ */
+window.ElectronCloud.UI.setPlotTypeRestrictionsForMultiselect = function (enabled) {
+    const ui = window.ElectronCloud.ui;
+    if (!ui || !ui.plotTypeSelect) return;
+
+    const select = ui.plotTypeSelect;
+    const disabledValues = new Set(['potential', 'dEdr', 'localEnergy']);
+
+    Array.from(select.options).forEach(option => {
+        if (!option) return;
+        if (disabledValues.has(option.value)) {
+            option.disabled = !!enabled;
+        } else {
+            option.disabled = false;
+        }
+    });
+
+    const current = select.options[select.selectedIndex];
+    if (current && current.disabled) {
+        select.value = 'radial';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    window.ElectronCloud.UI.updateCustomSelectDisabledOptions(select);
 };
 
 // ==================== 顶部模式切换栏 ====================

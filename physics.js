@@ -1919,7 +1919,13 @@
 
         // Clamp r to grid range
         if (r <= grid[0]) return values[0];
-        if (r >= grid[n - 1]) return values[n - 1];
+        if (r >= grid[n - 1]) {
+          // Physical asymptote: Vee(r) ~ A / r at large r.
+          // Use last cached point to estimate A and avoid constant-tail artifacts.
+          const rMax = grid[n - 1];
+          const vMax = values[n - 1];
+          return vMax * (rMax / r);
+        }
 
         // Binary search for interval
         let lo = 0, hi = n - 1;
@@ -2017,7 +2023,11 @@
       const n = grid.length;
       let vee = 0;
       if (r <= grid[0]) vee = cache[0];
-      else if (r >= grid[n - 1]) vee = cache[n - 1];
+      else if (r >= grid[n - 1]) {
+        const rMax = grid[n - 1];
+        const vMax = cache[n - 1];
+        vee = vMax * (rMax / r);
+      }
       else {
         let lo = 0, hi = n - 1;
         while (hi - lo > 1) {
@@ -2033,15 +2043,20 @@
     },
 
     /**
-     * 计算重构动能 T_rec(r) = ε - V_nuc(r) - V_ee(r)
-     * 这是基于薛定谔方程的模型内一致动能表达
-     * 
+     * 由一电子本征方程定义的局域动能（local kinetic energy）
+     *
+     * 对满足局域势一电子方程的轨道 φ，有恒等式：
+     *   (-1/2 ∇² + V_eff) φ = ε φ  ⇒  t_loc(r) ≡ (-1/2 ∇²φ)/φ = ε - V_eff(r)
+     *
+     * 本项目取 V_eff(r) = V_nuc(r) + V_ee(r)；其中 V_ee 由 VeeCache 给出（与轨道有关）。
+     * 该量用于可视化/诊断，属于“模型内自洽”的局域量，不等同于严格的多体动能密度。
+     *
      * @param {number} r - 径向距离
      * @param {number} epsilon - 轨道本征值 (Hartree)
      * @param {number} Z - 核电荷
      * @param {string} atomType - 原子类型
      * @param {string} orbitalKey - 轨道标识 (例如 '2s')
-     * @returns {number} - 重构动能 T_rec(r)
+     * @returns {number} - 局域动能 t_loc(r) (Hartree)
      */
     calculateReconstructedKineticEnergy: function (r, epsilon, Z, atomType, orbitalKey) {
       if (r <= 0) return 0;
@@ -2057,7 +2072,11 @@
         if (cache && grid) {
           const n = grid.length;
           if (r <= grid[0]) V_ee = cache[0];
-          else if (r >= grid[n - 1]) V_ee = cache[n - 1];
+          else if (r >= grid[n - 1]) {
+            const rMax = grid[n - 1];
+            const vMax = cache[n - 1];
+            V_ee = vMax * (rMax / r);
+          }
           else {
             let lo = 0, hi = n - 1;
             while (hi - lo > 1) {
@@ -2071,8 +2090,23 @@
         }
       }
 
-      // T_rec = ε - V_nuc - V_ee
+      // t_loc(r) = ε - V_nuc(r) - V_ee(r)
       return epsilon - V_nuc - V_ee;
+    },
+
+    // 更符合量子化学术语的别名（保留旧名以兼容历史代码）
+    calculateLocalKineticEnergy: function (r, epsilon, Z, atomType, orbitalKey) {
+      // 注意：该函数可能会以“取出函数再调用”的方式被调用（从而丢失 this 绑定）。
+      // 因此这里显式使用全局对象引用，避免 this 依赖。
+      const H = (globalScope && globalScope.Hydrogen) ? globalScope.Hydrogen : null;
+      if (H && typeof H.calculateReconstructedKineticEnergy === 'function') {
+        return H.calculateReconstructedKineticEnergy(r, epsilon, Z, atomType, orbitalKey);
+      }
+      // 极端回退：若仍能通过 this 访问（作为方法调用），则使用它
+      if (this && typeof this.calculateReconstructedKineticEnergy === 'function') {
+        return this.calculateReconstructedKineticEnergy(r, epsilon, Z, atomType, orbitalKey);
+      }
+      return 0;
     },
 
     /**

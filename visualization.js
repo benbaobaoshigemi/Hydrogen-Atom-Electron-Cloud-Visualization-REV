@@ -1085,9 +1085,12 @@ window.ElectronCloud.Visualization.createContourMesh = function (group, baseRadi
     }
 
     // 计算等值面阈值
+    // 【性能优化】降采样估计阈值，避免对全部点云计算 + 排序导致主线程卡顿
     const psiValues = [];
     const positions = state.points.geometry.attributes.position.array;
-    for (let i = 0; i < state.pointCount; i++) {
+    const MAX_PSI_SAMPLES = 4000;
+    const step = Math.max(1, Math.floor(state.pointCount / MAX_PSI_SAMPLES));
+    for (let i = 0; i < state.pointCount; i += step) {
         const i3 = i * 3;
         psiValues.push(Math.abs(calcPsiLocal(positions[i3], positions[i3 + 1], positions[i3 + 2])));
     }
@@ -1213,17 +1216,24 @@ window.ElectronCloud.Visualization.createContourOverlay = function () {
 
     if (!state.points) return group;
 
-    // 计算包围球半径
-    const positions = state.points.geometry.attributes.position.array;
-    let maxR = 0;
-    for (let i = 0; i < state.pointCount; i++) {
-        const x = positions[i * 3];
-        const y = positions[i * 3 + 1];
-        const z = positions[i * 3 + 2];
-        const r = Math.sqrt(x * x + y * y + z * z);
-        if (r > maxR) maxR = r;
+    // 计算包围球半径：优先使用采样阶段维护的 farthestDistance，避免全量扫描点云阻塞主线程
+    let baseRadius = (state.farthestDistance && state.farthestDistance > 0) ? state.farthestDistance : 0;
+
+    // 回退：若 farthestDistance 不可用，再扫描点云
+    if (!(baseRadius > 0)) {
+        const positions = state.points.geometry.attributes.position.array;
+        let maxR = 0;
+        for (let i = 0; i < state.pointCount; i++) {
+            const x = positions[i * 3];
+            const y = positions[i * 3 + 1];
+            const z = positions[i * 3 + 2];
+            const r = Math.sqrt(x * x + y * y + z * z);
+            if (r > maxR) maxR = r;
+        }
+        baseRadius = maxR > 0 ? maxR : 10;
+    } else {
+        baseRadius = Math.max(baseRadius, 10);
     }
-    const baseRadius = maxR > 0 ? maxR : 10;
 
     // 检查是否为比照模式
     const isCompareMode = ui && ui.compareToggle && ui.compareToggle.checked;
@@ -1251,27 +1261,119 @@ window.ElectronCloud.Visualization.createCompareContourMeshes = function (group,
     const activeSlots = state.compareMode.activeSlots || [];
     if (activeSlots.length === 0) return;
 
+    if (!state.points) return;
+
     const compareColors = constants.compareColors || [
         { name: 'red', value: [1, 0.2, 0.2] },
         { name: 'green', value: [0.2, 1, 0.2] },
         { name: 'blue', value: [0.2, 0.2, 1] }
     ];
 
+    const useWorker = window.ElectronCloud.Visualization.isIsosurfaceWorkerAvailable &&
+        window.ElectronCloud.Visualization.isIsosurfaceWorkerAvailable();
+
+    const positions = state.points.geometry.attributes.position.array;
+    const pointOrbitalIndices = state.pointOrbitalIndices;
+    const pointCount = state.pointCount || 0;
+
+    // 【性能优化】一次遍历点云，为每个 slot 做 reservoir sampling
+    const SAMPLE_TARGET = 2500;
+    const slotSampleIndices = Array.from({ length: activeSlots.length }, () => []);
+    if (pointOrbitalIndices && pointCount > 0) {
+        const seen = new Array(activeSlots.length).fill(0);
+        for (let i = 0; i < pointCount; i++) {
+            const sIdx = pointOrbitalIndices[i];
+            if (sIdx === undefined || sIdx === null) continue;
+            if (sIdx < 0 || sIdx >= activeSlots.length) continue;
+
+            seen[sIdx]++;
+            const arr = slotSampleIndices[sIdx];
+            if (arr.length < SAMPLE_TARGET) {
+                arr.push(i);
+            } else {
+                const j = Math.floor(Math.random() * seen[sIdx]);
+                if (j < SAMPLE_TARGET) arr[j] = i;
+            }
+        }
+    }
+
+    function isSlotVisibleNow(slot) {
+        return !(state.compareMode && state.compareMode.slotVisibility && state.compareMode.slotVisibility[slot.slotIndex] === false);
+    }
+
+    function addMeshFromVertices(vertices, color, slotIdx, visible) {
+        if (!vertices || vertices.length < 9) return;
+
+        const posArr = new Float32Array(vertices);
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+        geometry.computeVertexNormals();
+
+        const colors = new Float32Array(vertices.length);
+        for (let i = 0; i < vertices.length / 3; i++) {
+            colors[i * 3] = color.r;
+            colors[i * 3 + 1] = color.g;
+            colors[i * 3 + 2] = color.b;
+        }
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+        const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+            vertexColors: true, transparent: true, opacity: 0.55,
+            side: THREE.DoubleSide, wireframe: true, wireframeLinewidth: 1.5
+        }));
+        mesh.userData.slotIndex = slotIdx;
+        mesh.layers.set(1);
+        mesh.visible = visible;
+        group.add(mesh);
+    }
+
+    function fillGroupWithWorkerResult(result, color, slotIdx, visible) {
+        if (!result) return;
+        const pos = result.positive || [];
+        const neg = result.negative || [];
+        for (const vertices of pos) addMeshFromVertices(vertices, color, slotIdx, visible);
+        for (const vertices of neg) addMeshFromVertices(vertices, color, slotIdx, visible);
+    }
+
+    function estimateIsovalueForSlot(slotIdx, calcPsi) {
+        const psiValues = [];
+
+        const indices = slotSampleIndices[slotIdx] || [];
+        for (let k = 0; k < indices.length; k++) {
+            const i = indices[k];
+            const i3 = i * 3;
+            const psi = calcPsi(positions[i3], positions[i3 + 1], positions[i3 + 2]);
+            psiValues.push(Math.abs(psi));
+        }
+
+        // 如果没有足够的点，使用球面均匀采样估算
+        if (psiValues.length < 50) {
+            const sampleCount = 800;
+            const radius = baseRadius * 0.7;
+            for (let s = 0; s < sampleCount; s++) {
+                const theta = Math.acos(2 * Math.random() - 1);
+                const phi = 2 * Math.PI * Math.random();
+                const r = Math.random() * radius;
+                const x = r * Math.sin(theta) * Math.cos(phi);
+                const y = r * Math.cos(theta);
+                const z = r * Math.sin(theta) * Math.sin(phi);
+                const psi = calcPsi(x, y, z);
+                psiValues.push(Math.abs(psi));
+            }
+        }
+
+        psiValues.sort((a, b) => b - a);
+        return psiValues[Math.floor(psiValues.length * 0.95)] || 0.0001;
+    }
+
     // 为每个slot创建等值面
     for (let slotIdx = 0; slotIdx < activeSlots.length; slotIdx++) {
         const slot = activeSlots[slotIdx];
         if (!slot || !slot.orbital) continue;
 
-        // 检查该slot是否可见
-        if (state.compareMode.slotVisibility &&
-            state.compareMode.slotVisibility[slot.slotIndex] === false) {
-            continue;
-        }
-
         const orbitalKey = slot.orbital;
         const atomType = slot.atom || 'H';
         const orbitalParams = Hydrogen.orbitalParamsFromKey(orbitalKey);
-
         if (!orbitalParams) continue;
 
         // 获取该slot的颜色
@@ -1290,118 +1392,138 @@ window.ElectronCloud.Visualization.createCompareContourMeshes = function (group,
                     orbitalParams.angKey.t, theta, phi);
         }
 
-        // 收集该slot的采样点来计算isovalue
-        const psiValues = [];
-        const positions = state.points.geometry.attributes.position.array;
+        const isovalue = estimateIsovalueForSlot(slotIdx, calcPsi);
 
-        // 使用pointOrbitalIndices找到属于该slot的点
-        for (let i = 0; i < state.pointCount; i++) {
-            // 检查该点是否属于当前slot
-            if (state.pointOrbitalIndices && state.pointOrbitalIndices[i] === slotIdx) {
-                const i3 = i * 3;
-                const psi = calcPsi(positions[i3], positions[i3 + 1], positions[i3 + 2]);
-                psiValues.push(Math.abs(psi));
-            }
-        }
-
-        // 如果没有足够的点，使用全局采样估算
-        if (psiValues.length < 50) {
-            // 使用球面均匀采样
-            const sampleCount = 1000;
-            const radius = baseRadius * 0.7;
-            for (let s = 0; s < sampleCount; s++) {
-                const theta = Math.acos(2 * Math.random() - 1);
-                const phi = 2 * Math.PI * Math.random();
-                const r = Math.random() * radius;
-                const x = r * Math.sin(theta) * Math.cos(phi);
-                const y = r * Math.cos(theta);
-                const z = r * Math.sin(theta) * Math.sin(phi);
-                const psi = calcPsi(x, y, z);
-                psiValues.push(Math.abs(psi));
-            }
-        }
-
-        psiValues.sort((a, b) => b - a);
-        const isovalue = psiValues[Math.floor(psiValues.length * 0.95)] || 0.0001;
-
-        // Marching Cubes
+        // Marching Cubes 参数
         const bound = baseRadius * 1.3;
         const resolution = 160; // 与单轨模式统一
 
-        const result = window.MarchingCubes.run(
-            calcPsi,
-            { min: [-bound, -bound, -bound], max: [bound, bound, bound] },
-            resolution,
-            isovalue
-        );
+        // 结果网格是否可见（如果用户在计算期间切换可见性，创建时会读当前状态）
+        const visibleNow = isSlotVisibleNow(slot);
 
-        // 创建网格
-        function addLobeMeshes(triangles, color) {
-            if (triangles.length < 9) return;
-            const components = window.MarchingCubes.separate(triangles);
+        if (useWorker) {
+            const atomSlaterData = (window.SlaterBasis && window.SlaterBasis[atomType])
+                ? window.SlaterBasis[atomType] : null;
 
-            for (const comp of components) {
-                if (comp.length < 9) continue;
-                const geom = window.MarchingCubes.toGeometry(comp);
-                const colors = new Float32Array(comp.length * 3);
-                for (let i = 0; i < comp.length; i++) {
-                    colors[i * 3] = color.r;
-                    colors[i * 3 + 1] = color.g;
-                    colors[i * 3 + 2] = color.b;
+            const workerParams = {
+                orbitalParams: [{
+                    n: orbitalParams.n,
+                    l: orbitalParams.l,
+                    angKey: { l: orbitalParams.angKey.l, m: orbitalParams.angKey.m, t: orbitalParams.angKey.t }
+                }],
+                coeffs: [1],
+                bound: bound,
+                resolution: resolution,
+                isovalue: isovalue,
+                atomType: atomType,
+                slaterBasis: atomSlaterData,
+                color: slotColor
+            };
+
+            window.ElectronCloud.Visualization.computeIsosurfaceAsync(
+                workerParams,
+                null,
+                function (result) {
+                    // 以创建时的 visibleNow 为初始值；后续切换由 updateCompareContourVisibility 接管
+                    fillGroupWithWorkerResult(result, slotColor, slotIdx, visibleNow);
+                },
+                function (error) {
+                    console.error('比照模式 Worker 等值面计算失败:', error);
                 }
-                geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            );
+        } else {
+            // Worker 不可用：同步回退（可能阻塞主线程）
+            const result = window.MarchingCubes.run(
+                calcPsi,
+                { min: [-bound, -bound, -bound], max: [bound, bound, bound] },
+                resolution,
+                isovalue
+            );
 
-                const mesh = new THREE.Mesh(geom, new THREE.MeshBasicMaterial({
-                    vertexColors: true, transparent: true, opacity: 0.55,
-                    side: THREE.DoubleSide, wireframe: true, wireframeLinewidth: 1.5
-                }));
-                // 【关键新增】标记该网格属于哪个slot，以便后续单独控制可见性
-                mesh.userData.slotIndex = slotIdx;
-                mesh.layers.set(1);
-                group.add(mesh);
+            function addLobeMeshes(triangles, color) {
+                if (triangles.length < 9) return;
+                const components = window.MarchingCubes.separate(triangles);
+                for (const comp of components) {
+                    if (comp.length < 9) continue;
+                    const geom = window.MarchingCubes.toGeometry(comp);
+                    const colors = new Float32Array(comp.length * 3);
+                    for (let i = 0; i < comp.length; i++) {
+                        colors[i * 3] = color.r;
+                        colors[i * 3 + 1] = color.g;
+                        colors[i * 3 + 2] = color.b;
+                    }
+                    geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+                    const mesh = new THREE.Mesh(geom, new THREE.MeshBasicMaterial({
+                        vertexColors: true, transparent: true, opacity: 0.55,
+                        side: THREE.DoubleSide, wireframe: true, wireframeLinewidth: 1.5
+                    }));
+                    mesh.userData.slotIndex = slotIdx;
+                    mesh.layers.set(1);
+                    mesh.visible = visibleNow;
+                    group.add(mesh);
+                }
             }
-        }
 
-        // 使用slot对应颜色
-        addLobeMeshes(result.positive, slotColor);
-        addLobeMeshes(result.negative, slotColor);
+            addLobeMeshes(result.positive, slotColor);
+            addLobeMeshes(result.negative, slotColor);
+        }
     }
 };
 
-window.ElectronCloud.Visualization.updateContourOverlay = function () {
+window.ElectronCloud.Visualization.updateContourOverlay = function (options) {
     const state = window.ElectronCloud.state;
-    const ui = window.ElectronCloud.ui;
 
+    const opts = options || {};
     const toggle = document.getElementById('contour-3d-toggle');
-    if (!toggle || !toggle.checked) {
+    const wantVisible = (typeof opts.visible === 'boolean')
+        ? opts.visible
+        : !!(toggle && toggle.checked);
+    const precompute = !!opts.precompute;
+    const forceRebuild = !!opts.forceRebuild;
+
+    // 默认：开关关闭时仅隐藏，不销毁（便于预计算缓存）
+    if (!wantVisible && !precompute) {
         if (state.contourOverlay) {
+            state.contourOverlay.visible = false;
+        }
+        return;
+    }
+
+    // 需要重建时先销毁旧对象
+    if (state.contourOverlay && forceRebuild) {
+        try {
             state.scene.remove(state.contourOverlay);
             state.contourOverlay.traverse((child) => {
                 if (child.geometry) child.geometry.dispose();
                 if (child.material) child.material.dispose();
             });
-            state.contourOverlay = null;
+        } catch (e) {
+            console.warn('contourOverlay 清理失败:', e);
         }
-        return;
+        state.contourOverlay = null;
     }
 
-    if (state.contourOverlay) {
-        state.scene.remove(state.contourOverlay);
-        state.contourOverlay.traverse((child) => {
-            if (child.geometry) child.geometry.dispose();
-            if (child.material) child.material.dispose();
-        });
+    // 若不存在则创建（创建后内部可能异步填充几何体）
+    if (!state.contourOverlay) {
+        state.contourOverlay = window.ElectronCloud.Visualization.createContourOverlay();
+        state.contourOverlay.visible = false;
+
+        if (state.points) {
+            state.contourOverlay.rotation.copy(state.points.rotation);
+            state.contourOverlay.updateMatrix();
+        }
+
+        state.scene.add(state.contourOverlay);
+    } else {
+        // 同步旋转，避免点云旋转后轮廓不同步
+        if (state.points) {
+            state.contourOverlay.rotation.copy(state.points.rotation);
+            state.contourOverlay.updateMatrix();
+        }
     }
 
-    state.contourOverlay = window.ElectronCloud.Visualization.createContourOverlay();
-    state.contourOverlay.visible = true;
-
-    if (state.points) {
-        state.contourOverlay.rotation.copy(state.points.rotation);
-        state.contourOverlay.updateMatrix();
-    }
-
-    state.scene.add(state.contourOverlay);
+    state.contourOverlay.visible = wantVisible;
 };
 
 /**
