@@ -1370,13 +1370,17 @@ window.ElectronCloud.Visualization.createCompareContourMeshes = function (group,
         const slot = activeSlots[slotIdx];
         if (!slot || !slot.orbital) continue;
 
+        // 【关键修复】UI slotIndex 才是稳定标识（空 slot 时 activeSlots 索引会前移）
+        const uiSlotIndex = (slot && Number.isInteger(slot.slotIndex)) ? slot.slotIndex : slotIdx;
+
         const orbitalKey = slot.orbital;
         const atomType = slot.atom || 'H';
         const orbitalParams = Hydrogen.orbitalParamsFromKey(orbitalKey);
         if (!orbitalParams) continue;
 
-        // 获取该slot的颜色
-        const colorValue = compareColors[slotIdx % compareColors.length].value;
+        // 获取该slot的颜色（按 UI slotIndex 取色）
+        const safeColorIdx = ((uiSlotIndex % compareColors.length) + compareColors.length) % compareColors.length;
+        const colorValue = compareColors[safeColorIdx].value;
         const slotColor = { r: colorValue[0], g: colorValue[1], b: colorValue[2] };
 
         // 为该slot的波函数计算等值面
@@ -1424,7 +1428,7 @@ window.ElectronCloud.Visualization.createCompareContourMeshes = function (group,
                 null,
                 function (result) {
                     // 以创建时的 visibleNow 为初始值；后续切换由 updateCompareContourVisibility 接管
-                    fillGroupWithWorkerResult(result, slotColor, slotIdx, visibleNow);
+                    fillGroupWithWorkerResult(result, slotColor, uiSlotIndex, visibleNow);
                 },
                 function (error) {
                     console.error('比照模式 Worker 等值面计算失败:', error);
@@ -1457,7 +1461,7 @@ window.ElectronCloud.Visualization.createCompareContourMeshes = function (group,
                         vertexColors: true, transparent: true, opacity: 0.55,
                         side: THREE.DoubleSide, wireframe: true, wireframeLinewidth: 1.5
                     }));
-                    mesh.userData.slotIndex = slotIdx;
+                    mesh.userData.slotIndex = uiSlotIndex;
                     mesh.layers.set(1);
                     mesh.visible = visibleNow;
                     group.add(mesh);

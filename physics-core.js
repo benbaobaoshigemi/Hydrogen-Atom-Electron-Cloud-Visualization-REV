@@ -1,10 +1,10 @@
 /**
  * 共享物理核心模块 (v2.0)
- * 
- * 此文件包含 physics.js 和 sampling-worker.js 共享的核心物理计算函数。
- * 解决了“三重冗余”问题，成为项目唯一的物理逻辑来源。
- * 
- * 【重要】修改此文件将同时影响主线程和 Worker，请务必进行全量回归测试。
+ *
+ * 本文件包含 physics.js 与 sampling-worker.js 共用的核心物理计算函数，
+ * 作为项目物理逻辑的唯一来源。
+ *
+ * 重要：修改本文件会同时影响主线程与 Worker，请务必进行全量回归测试。
  */
 
 (function (root) {
@@ -15,6 +15,7 @@
     const TWO_PI = 2 * Math.PI;
 
     // 缓存容器
+    const _thomsonCache = {};
     const _cdfCache = {};
     const _peakCache = {};
 
@@ -71,7 +72,45 @@
         return pll;
     }
 
-    // ==================== 2. 线性代数工具 ====================
+    // ==================== 2. 线性代数工具 & 四元数 ====================
+
+    // 四元数工具
+    function quatMultiply(p, q) {
+        return [
+            p[0] * q[0] - p[1] * q[1] - p[2] * q[2] - p[3] * q[3], // w
+            p[0] * q[1] + p[1] * q[0] + p[2] * q[3] - p[3] * q[2], // x
+            p[0] * q[2] - p[1] * q[3] + p[2] * q[0] + p[3] * q[1], // y
+            p[0] * q[3] + p[1] * q[2] - p[2] * q[1] + p[3] * q[0]  // z
+        ];
+    }
+
+    function quatRotateVector(q, v) {
+        // v' = q * v * q_inv
+        // vector v as quaternion [0, v]
+        const vq = [0, v[0], v[1], v[2]];
+        const qInv = [q[0], -q[1], -q[2], -q[3]]; // q must be normalized
+        const temp = quatMultiply(q, vq);
+        const res = quatMultiply(temp, qInv);
+        return [res[1], res[2], res[3]];
+    }
+
+    function quatNormalize(q) {
+        const norm = Math.sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+        if (norm < 1e-9) return [1, 0, 0, 0];
+        return [q[0] / norm, q[1] / norm, q[2] / norm, q[3] / norm];
+    }
+
+    function quatRandom() {
+        // Uniform random quaternion
+        const u1 = Math.random(), u2 = Math.random(), u3 = Math.random();
+        const sq10 = Math.sqrt(1 - u1), squ1 = Math.sqrt(u1);
+        return [
+            sq10 * Math.sin(TWO_PI * u2),
+            sq10 * Math.cos(TWO_PI * u2),
+            squ1 * Math.sin(TWO_PI * u3),
+            squ1 * Math.cos(TWO_PI * u3)
+        ];
+    }
 
     function matMul(A, B) {
         const m = A.length, n = A[0].length, p = B[0].length;
@@ -228,7 +267,89 @@
         return r * r * R * R;
     }
 
-    // ==================== 4. 杂化轨道逻辑 ====================
+    // ==================== 4. 杂化轨道逻辑 (Thomson, SVD) ====================
+
+    function optimizeThomson(n, maxIter = 200, lr = 0.1) {
+        if (n <= 1) return [[0, 0, 1]];
+        if (_thomsonCache[n]) return JSON.parse(JSON.stringify(_thomsonCache[n]));
+        let points = [];
+        const gr = (1 + Math.sqrt(5)) / 2;
+        for (let i = 0; i < n; i++) {
+            const y = 1 - (i / (n - 1)) * 2, rad = Math.sqrt(1 - y * y), t = TWO_PI * i / gr;
+            points.push([Math.cos(t) * rad, y, Math.sin(t) * rad]);
+        }
+        for (let iter = 0; iter < maxIter; iter++) {
+            const grad = points.map(() => [0, 0, 0]);
+            for (let i = 0; i < n; i++) {
+                for (let j = i + 1; j < n; j++) {
+                    const dx = points[i][0] - points[j][0], dy = points[i][1] - points[j][1], dz = points[i][2] - points[j][2];
+                    const d2 = dx * dx + dy * dy + dz * dz, d3 = d2 * Math.sqrt(d2) + 1e-10;
+                    grad[i][0] -= dx / d3; grad[i][1] -= dy / d3; grad[i][2] -= dz / d3;
+                    grad[j][0] += dx / d3; grad[j][1] += dy / d3; grad[j][2] += dz / d3;
+                }
+            }
+            for (let i = 0; i < n; i++) {
+                points[i][0] -= lr * grad[i][0]; points[i][1] -= lr * grad[i][1]; points[i][2] -= lr * grad[i][2];
+                const norm = Math.sqrt(points[i][0] ** 2 + points[i][1] ** 2 + points[i][2] ** 2);
+                points[i] = [points[i][0] / norm, points[i][1] / norm, points[i][2] / norm];
+            }
+            if (iter % 50 === 0) lr *= 0.8;
+        }
+        _thomsonCache[n] = JSON.parse(JSON.stringify(points));
+        return points;
+    }
+
+    // 杂化方向缓存：基于轨道参数的完整 key
+    const _hybridDirCache = {};
+
+    /**
+     * 从轨道角向量子数 (l, m, t) 数值计算极值方向
+     * 通过在单位球面上搜索 realYlm_value 的最大值
+     */
+    function computeOrbitalPeakDirection(l, m, t) {
+        if (l === 0) return null; // s 轨道各向同性，无主轴
+
+        let maxVal = -Infinity, bestT = 0, bestP = 0;
+        // 粗搜索
+        for (let theta = 0.05; theta < Math.PI; theta += 0.1) {
+            for (let phi = 0; phi < TWO_PI; phi += 0.1) {
+                const val = realYlm_value(l, m, t, theta, phi);
+                if (val > maxVal) { maxVal = val; bestT = theta; bestP = phi; }
+            }
+        }
+        // 细搜索
+        for (let theta = Math.max(0.01, bestT - 0.15); theta < Math.min(Math.PI - 0.01, bestT + 0.15); theta += 0.02) {
+            for (let phi = bestP - 0.15; phi < bestP + 0.15; phi += 0.02) {
+                const val = realYlm_value(l, m, t, theta, phi);
+                if (val > maxVal) { maxVal = val; bestT = theta; bestP = phi; }
+            }
+        }
+        return [
+            Math.sin(bestT) * Math.cos(bestP),
+            Math.sin(bestT) * Math.sin(bestP),
+            Math.cos(bestT)
+        ];
+    }
+
+    /**
+     * 计算旋转四元数，将向量 from 旋转到向量 to
+     */
+    function quatFromVectors(from, to) {
+        const dot = from[0] * to[0] + from[1] * to[1] + from[2] * to[2];
+        if (dot > 0.9999) return [1, 0, 0, 0]; // 无需旋转
+        if (dot < -0.9999) {
+            // 180度旋转，找一个垂直轴
+            let axis = [0, 1, 0];
+            if (Math.abs(from[1]) > 0.9) axis = [1, 0, 0];
+            return quatNormalize([0, axis[0], axis[1], axis[2]]);
+        }
+        const cross = [
+            from[1] * to[2] - from[2] * to[1],
+            from[2] * to[0] - from[0] * to[2],
+            from[0] * to[1] - from[1] * to[0]
+        ];
+        return quatNormalize([1 + dot, cross[0], cross[1], cross[2]]);
+    }
 
     /**
      * 检验杂化轨道组合是否为支持的标准构型
@@ -343,9 +464,202 @@
             return [p_axes[0], p_axes[1]];
         }
 
-        // 非标准组合应被 UI 层 isValidHybridization 拦截，此处报错作为安全堆栈
-        throw new Error(`Unsupported hybridization: ${n} orbitals with s=${counts.s}, p=${counts.p}, d=${counts.d}`);
+
+        // 生成缓存 key (通用算法兜底)
+        const cacheKey = orbitalParams.map(p =>
+            `${p.angKey.l}_${p.angKey.m}_${p.angKey.t}`
+        ).join('|');
+
+        if (_hybridDirCache[cacheKey]) {
+            return JSON.parse(JSON.stringify(_hybridDirCache[cacheKey]));
+        }
+
+        // 1. 计算锚点（物理极值方向）
+        const anchors = [];
+        for (const p of orbitalParams) {
+            const dir = computeOrbitalPeakDirection(p.angKey.l, p.angKey.m, p.angKey.t);
+            if (dir) anchors.push(dir);
+        }
+
+        // 2. 尝试生成 Thomson 几何（理想斥力模型）
+        const thomsonPoints = optimizeThomson(n);
+
+        // 3. 【核心判据】物理可行性检验 (Rank Check)
+        // 检查选定的轨道基组是否在数学上能够支撑起 Thomson 几何
+        const A = [];
+        for (let i = 0; i < n; i++) {
+            const p = thomsonPoints[i];
+            const theta = Math.acos(p[2]);
+            const phi = Math.atan2(p[1], p[0]);
+            const row = orbitalParams.map(param =>
+                realYlm_value(param.angKey.l, param.angKey.m, param.angKey.t, theta, phi)
+            );
+            A.push(row);
+        }
+
+        const { S } = jacobiSVD(A);
+        const minSingularValue = Math.min(...S); // 最小奇异值
+        const isGeometricallyCompatible = minSingularValue > 1e-4;
+
+        if (!isGeometricallyCompatible) {
+            // [CASE A] 几何不兼容 -> 回退到锚点（自然正交基）
+            if (anchors.length !== n) {
+                _hybridDirCache[cacheKey] = thomsonPoints; // 兜底
+                return thomsonPoints;
+            }
+            _hybridDirCache[cacheKey] = JSON.parse(JSON.stringify(anchors));
+            return anchors;
+        }
+
+        // [CASE B] 几何兼容 -> 使用 Thomson + 对齐优化
+        let bestPoints = thomsonPoints;
+
+        if (anchors.length > 0) {
+            let bestScore = -Infinity;
+            let bestR = [1, 0, 0, 0];
+
+            // 扩展锚点
+            const fullAnchors = [];
+            anchors.forEach(a => {
+                fullAnchors.push(a);
+                fullAnchors.push([-a[0], -a[1], -a[2]]);
+            });
+
+            // 全局搜索对齐
+            for (let i = 0; i < n; i++) {
+                const P = thomsonPoints[i];
+                for (const A of fullAnchors) {
+                    const qBase = quatFromVectors(P, A);
+
+                    for (let angle = 0; angle < TWO_PI; angle += 0.174) { // 10 degree step
+                        const half = angle / 2;
+                        const s = Math.sin(half);
+                        const qRot = [Math.cos(half), A[0] * s, A[1] * s, A[2] * s];
+                        const q = quatMultiply(qRot, qBase);
+
+                        const rotated = thomsonPoints.map(pt => quatRotateVector(q, pt));
+
+                        // v10.0: 对称性优先评分
+                        const dots = [];
+                        let sumMaxDot = 0;
+                        for (const rp of rotated) {
+                            let maxDot = 0;
+                            for (const fa of fullAnchors) {
+                                const d = rp[0] * fa[0] + rp[1] * fa[1] + rp[2] * fa[2];
+                                if (d > maxDot) maxDot = d;
+                            }
+                            dots.push(maxDot);
+                            sumMaxDot += maxDot;
+                        }
+
+                        // 计算标准差
+                        const mean = sumMaxDot / n;
+                        let sqDiffSum = 0;
+                        for (let k = 0; k < n; k++) sqDiffSum += (dots[k] - mean) * (dots[k] - mean);
+                        const stdev = Math.sqrt(sqDiffSum / n);
+
+                        // Score = Sum - 100 * Stdev
+                        let score = sumMaxDot - 100 * stdev;
+
+                        if (score > bestScore) {
+                            bestScore = score;
+                            bestR = q;
+                        }
+                    }
+                }
+            }
+            bestPoints = thomsonPoints.map(p => quatRotateVector(bestR, p));
+        }
+
+        _hybridDirCache[cacheKey] = JSON.parse(JSON.stringify(bestPoints));
+        return bestPoints;
     }
+    // 【核心优化器】基于爬山法的四元数旋转优化
+    function optimizeHybridAlignment(initialPoints, orbitalParams) {
+        const N = initialPoints.length;
+        const M = orbitalParams.length; // usually N=M
+
+        // 目标函数：计算当前旋转下的 Vol Index
+        function calculateScore(q) {
+            // Apply rotation
+            const rotated = initialPoints.map(p => quatRotateVector(q, p));
+
+            // Build Matrix A (N x M)
+            const A = [];
+            for (let i = 0; i < N; i++) {
+                const p = rotated[i];
+                const r = Math.sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
+                // Robust acos
+                const theta = Math.acos(Math.max(-1, Math.min(1, p[2] / r)));
+                const phi = Math.atan2(p[1], p[0]);
+
+                const row = orbitalParams.map(param => {
+                    const { l, m, t } = param.angKey;
+                    return realYlm_value(l, m, t, theta, phi);
+                });
+                A.push(row);
+            }
+
+            // SVD to get Singular Values
+            const { S } = jacobiSVD(A);
+
+            // Score = Sum(log(sigma + eps))
+            // 避免奇异值接近0导致的数值不稳定
+            let score = 0;
+            for (let k = 0; k < S.length; k++) {
+                score += Math.log(S[k] + 1e-12);
+            }
+            return score;
+        }
+
+        let bestScore = -Infinity;
+        let bestPoints = initialPoints; // Fallback
+
+        // Random Restart Hill Climbing
+        // N=20 restarts seems sufficient for low dim
+        const NUM_RESTARTS = 20;
+        const STEPS_PER_RUN = 50;
+
+        for (let run = 0; run < NUM_RESTARTS; run++) {
+            // Random start
+            let currentQ = quatRandom();
+            let currentScore = calculateScore(currentQ);
+
+            // Simple Hill Climbing
+            let stepSize = 0.2;
+            for (let step = 0; step < STEPS_PER_RUN; step++) {
+                // Try perturbing quaternion
+                const perturb = [
+                    (Math.random() - 0.5) * stepSize,
+                    (Math.random() - 0.5) * stepSize,
+                    (Math.random() - 0.5) * stepSize,
+                    (Math.random() - 0.5) * stepSize
+                ];
+                const trialQ = quatNormalize([
+                    currentQ[0] + perturb[0], currentQ[1] + perturb[1],
+                    currentQ[2] + perturb[2], currentQ[3] + perturb[3]
+                ]);
+
+                const trialScore = calculateScore(trialQ);
+
+                if (trialScore > currentScore) {
+                    currentScore = trialScore;
+                    currentQ = trialQ;
+                } else {
+                    // Decay step size if no improvement
+                    stepSize *= 0.95;
+                }
+            }
+
+            if (currentScore > bestScore) {
+                bestScore = currentScore;
+                bestPoints = initialPoints.map(p => quatRotateVector(currentQ, p));
+            }
+        }
+
+        return bestPoints;
+    }
+
 
     function sortOrbitalsForHybridization(paramsList) {
         return [...paramsList].sort((a, b) => {
@@ -494,8 +808,10 @@
         factorial, binomialInt, generalizedLaguerre, associatedLegendre,
         matMul, matTranspose, jacobiSVD,
         Ylm_complex, realYlm_value, realYlm_abs2, getOrbitalKey, slaterRadialR, radialR, radialPDF,
-        generateConstrainedDirections, sortOrbitalsForHybridization, getHybridCoefficients,
+        optimizeThomson, generateConstrainedDirections, sortOrbitalsForHybridization, getHybridCoefficients,
         allHybridOrbitalsDensity3D, singleHybridDensity3D, singleHybridWavefunction, hybridEstimateMaxDensity, orbitalParamsFromKey,
+        computeOrbitalPeakDirection,
+        quatFromVectors, quatRotateVector, quatNormalize, quatMultiply,
         isValidHybridization
     };
 

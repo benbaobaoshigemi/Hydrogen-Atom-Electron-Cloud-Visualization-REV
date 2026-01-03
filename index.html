@@ -508,9 +508,9 @@
                         <option value="radial">径向分布</option>
                         <option value="angular">角向分布 (θ)</option>
                         <option value="azimuthal">角向分布 (φ)</option>
-                        <option value="potential">势能径向积分 E(r)</option>
-                        <option value="dEdr">势能贡献 dV/dr</option>
-                        <option value="localEnergy">轨道能量贡献 E(r)</option>
+                        <option value="energyDensity">轨道能量贡献 ε·P(r)</option>
+                        <option value="energyCumulative">累积能量 E(R)</option>
+                        <option value="energyCumulativeGamma">累积能量 E(R)（gamma变换）</option>
                     </select>
                 </div>
                 <div class="control-group">
@@ -548,18 +548,18 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
     <script src="slater_basis.js?v=2"></script>
-    <script src="vee_cache.js?v=1"></script>
+
     <script src="physics-core.js?v=1"></script>
     <script src="physics.js?v=37"></script>
     <script src="marching_cubes.js"></script>
-    <script src="data_panel.js?v=2"></script>
+    <script src="data_panel.js?v=11"></script>
     <!-- 模块化脚本文件 -->
     <script src="core.js?v=33"></script>
     <script src="scene.js?v=35"></script>
-    <script src="orbital.js?v=35"></script>
+    <script src="orbital.js?v=44"></script>
     <script src="sampling.js?v=36"></script>
     <script src="visualization.js?v=49"></script>
-    <script src="ui.js?v=90"></script>
+    <script src="ui.js?v=93"></script>
     <script src="one_euro_filter.js"></script>
     <!-- gesture_v2.js v4.0: 捏合旋转模式 - 更稳定的手势控制 -->
     <script type="module" src="gesture_v2.js?v=4.1"></script>

@@ -76,6 +76,11 @@ window.ElectronCloud.Sampling.handleWorkerResult = function (result, taskId, ses
 
     if (!state.points || !result.points.length) return;
 
+    // 【关键修复】确保采样索引映射存在：用于让 orbitalSamplesMap 与点云一一对应
+    if (!state.orbitalSampleIndexByPoint) {
+        state.orbitalSampleIndexByPoint = {};
+    }
+
     const positions = state.points.geometry.attributes.position.array;
     const colorsAttr = state.points.geometry.getAttribute('color');
     const colors = colorsAttr ? colorsAttr.array : null;
@@ -86,10 +91,15 @@ window.ElectronCloud.Sampling.handleWorkerResult = function (result, taskId, ses
     }
 
     // 将 Worker 采样的点添加到主线程
-    for (const point of result.points) {
-        if (state.pointCount >= state.MAX_POINTS) break;
+    const startPointIndex = state.pointCount;
+    const maxAdd = Math.max(0, state.MAX_POINTS - startPointIndex);
+    const pointsToAdd = Math.min(result.points.length, maxAdd);
 
-        const i3 = state.pointCount * 3;
+    for (let pIdx = 0; pIdx < pointsToAdd; pIdx++) {
+        const point = result.points[pIdx];
+        const pointIndex = state.pointCount;
+
+        const i3 = pointIndex * 3;
         positions[i3] = point.x;
         positions[i3 + 1] = point.y;
         positions[i3 + 2] = point.z;
@@ -109,24 +119,37 @@ window.ElectronCloud.Sampling.handleWorkerResult = function (result, taskId, ses
         }
 
         // 存储每个点的轨道索引（用于多轨道模式的等值面计算）
-        state.pointOrbitalIndices[state.pointCount] = point.orbitalIndex >= 0 ? point.orbitalIndex : 0;
+        state.pointOrbitalIndices[pointIndex] = point.orbitalIndex >= 0 ? point.orbitalIndex : 0;
 
         // 记录轨道点映射（用于比照模式开关）
         if (point.orbitalIndex >= 0) {
-            const orbitalKey = state.currentOrbitals[point.orbitalIndex];
+            // 【关键修复】比照模式下 orbitalPointsMap 也必须使用唯一键（原子+轨道+slot）
+            let orbitalKey = state.currentOrbitals[point.orbitalIndex];
+            const isCompareModeForPoint = ui.compareToggle && ui.compareToggle.checked;
+            if (isCompareModeForPoint && state.compareMode && state.compareMode.activeSlots) {
+                const slotConfig = state.compareMode.activeSlots[point.orbitalIndex];
+                if (slotConfig) {
+                    orbitalKey = `${slotConfig.atom || 'H'}_${slotConfig.orbital}_slot${slotConfig.slotIndex}`;
+                }
+            }
+
             if (orbitalKey) {
                 if (!state.orbitalPointsMap[orbitalKey]) {
                     state.orbitalPointsMap[orbitalKey] = [];
                 }
-                state.orbitalPointsMap[orbitalKey].push(state.pointCount);
+                state.orbitalPointsMap[orbitalKey].push(pointIndex);
             }
         }
 
         state.pointCount++;
     }
 
-    // 添加采样数据
-    for (const sample of result.samples) {
+    // 添加采样数据（保证与 pointIndex 对齐）
+    const samplesToAdd = Math.min(result.samples.length, pointsToAdd);
+    for (let sIdx = 0; sIdx < samplesToAdd; sIdx++) {
+        const sample = result.samples[sIdx];
+        const pointIndex = startPointIndex + sIdx;
+
         state.radialSamples.push(sample.r);
         state.angularSamples.push(sample.theta);
         state.phiSamples.push(sample.phi);
@@ -143,7 +166,7 @@ window.ElectronCloud.Sampling.handleWorkerResult = function (result, taskId, ses
                 console.log(`比照模式数据键构建: orbitalIndex=${sample.orbitalIndex}, activeSlots长度=${state.compareMode.activeSlots.length}, slotConfig=`, slotConfig);
                 if (slotConfig) {
                     // 使用"原子_轨道_slot索引"作为唯一键
-                    sampleKey = `${slotConfig.atom}_${sample.orbitalKey}_slot${slotConfig.slotIndex}`;
+                    sampleKey = `${slotConfig.atom || 'H'}_${sample.orbitalKey}_slot${slotConfig.slotIndex}`;
                     console.log(`sampleKey=${sampleKey}`);
                 }
             }
@@ -151,13 +174,18 @@ window.ElectronCloud.Sampling.handleWorkerResult = function (result, taskId, ses
             if (!state.orbitalSamplesMap[sampleKey]) {
                 state.orbitalSamplesMap[sampleKey] = [];
             }
-            state.orbitalSamplesMap[sampleKey].push({
+            const arr = state.orbitalSamplesMap[sampleKey];
+            arr.push({
                 r: sample.r,
                 theta: sample.theta,
                 phi: sample.phi,
                 probability: 0, // Worker 中已计算过
-                orbitalIndex: sample.orbitalIndex // 保存slot索引用于后续处理
+                orbitalIndex: sample.orbitalIndex, // 保存slot索引用于后续处理
+                pointIndex: pointIndex
             });
+
+            // 记录 pointIndex -> (key, idx) 映射，便于滚动更新时精确删除对应样本
+            state.orbitalSampleIndexByPoint[pointIndex] = { key: sampleKey, idx: arr.length - 1 };
         }
     }
 
@@ -213,8 +241,20 @@ window.ElectronCloud.Sampling.submitSamplingTask = function () {
     const phaseOn = state.usePhaseColoring || false;
 
     // 准备比照颜色（只传递值，不传递对象）
-    const compareColors = constants.compareColors ?
-        constants.compareColors.map(c => c.value) : [];
+    // 【关键修复】比照模式颜色必须绑定到 UI slotIndex，避免空 slot 导致颜色错位
+    let compareColors = [];
+    if (constants.compareColors) {
+        if (isCompareMode && state.compareMode && Array.isArray(state.compareMode.activeSlots) && state.compareMode.activeSlots.length > 0) {
+            const palette = constants.compareColors;
+            compareColors = state.compareMode.activeSlots.map(slot => {
+                const idx = (slot && Number.isInteger(slot.slotIndex)) ? slot.slotIndex : 0;
+                const safe = ((idx % palette.length) + palette.length) % palette.length;
+                return palette[safe].value;
+            });
+        } else {
+            compareColors = constants.compareColors.map(c => c.value);
+        }
+    }
 
     const taskId = ++taskIdCounter;
     // 根据速度滑条调整每个 Worker 的工作量
@@ -415,7 +455,10 @@ window.ElectronCloud.Sampling.processIndependentModePoint = function (x, y, z, r
     // 【关键修复】获取当前轨道对应的原子类型（比照模式支持不同原子）
     const orbitalKey = state.currentOrbitals[orbitalIndex];
     let currentAtom = state.currentAtom || 'H';
-    if (state.compareMode && state.compareMode.orbitalAtomMap && state.compareMode.orbitalAtomMap[orbitalKey]) {
+    // 【修复】优先使用基于索引的原子列表（支持同名轨道对比不同原子），降级使用 Map
+    if (state.compareMode && state.compareMode.atoms && state.compareMode.atoms[orbitalIndex]) {
+        currentAtom = state.compareMode.atoms[orbitalIndex];
+    } else if (state.compareMode && state.compareMode.orbitalAtomMap && state.compareMode.orbitalAtomMap[orbitalKey]) {
         currentAtom = state.compareMode.orbitalAtomMap[orbitalKey];
     }
     const density = Hydrogen.density3D_real(p.angKey, p.n, p.l, r, theta, phi, 1, 1, currentAtom);
@@ -456,8 +499,18 @@ window.ElectronCloud.Sampling.processIndependentModePoint = function (x, y, z, r
             }
         } else {
             // 比照模式：使用固定颜色区分不同轨道
-            if (orbitalIndex < constants.compareColors.length) {
-                const color = constants.compareColors[orbitalIndex].value;
+            // 【关键修复】颜色绑定到 UI slotIndex，避免空 slot 造成颜色前移
+            let colorIndex = orbitalIndex;
+            const ui = window.ElectronCloud.ui;
+            const isCompareModeNow = ui && ui.compareToggle && ui.compareToggle.checked;
+            if (isCompareModeNow && state.compareMode && Array.isArray(state.compareMode.activeSlots)) {
+                const slot = state.compareMode.activeSlots[orbitalIndex];
+                if (slot && Number.isInteger(slot.slotIndex)) colorIndex = slot.slotIndex;
+            }
+
+            if (constants.compareColors && constants.compareColors.length > 0) {
+                const safe = ((colorIndex % constants.compareColors.length) + constants.compareColors.length) % constants.compareColors.length;
+                const color = constants.compareColors[safe].value;
                 r_color = color[0];
                 g_color = color[1];
                 b_color = color[2];
@@ -692,8 +745,18 @@ window.ElectronCloud.Sampling.processImportanceSamplingPoint = function (
 
     if (isIndependentMode && !isMultiselectMode) {
         // 比照模式：使用固定颜色区分不同轨道
-        if (orbitalIndex < constants.compareColors.length) {
-            const color = constants.compareColors[orbitalIndex].value;
+        // 【关键修复】颜色绑定到 UI slotIndex，避免空 slot 造成颜色前移
+        let colorIndex = orbitalIndex;
+        const ui = window.ElectronCloud.ui;
+        const isCompareModeNow = ui && ui.compareToggle && ui.compareToggle.checked;
+        if (isCompareModeNow && state.compareMode && Array.isArray(state.compareMode.activeSlots)) {
+            const slot = state.compareMode.activeSlots[orbitalIndex];
+            if (slot && Number.isInteger(slot.slotIndex)) colorIndex = slot.slotIndex;
+        }
+
+        if (constants.compareColors && constants.compareColors.length > 0) {
+            const safe = ((colorIndex % constants.compareColors.length) + constants.compareColors.length) % constants.compareColors.length;
+            const color = constants.compareColors[safe].value;
             r_color = color[0];
             g_color = color[1];
             b_color = color[2];
@@ -1226,9 +1289,93 @@ window.ElectronCloud.Sampling.performRollingUpdate = function () {
         hybridCoeffs = matrix;
     }
 
+    // 比照模式：预先计算可见 slot（activeSlots 的索引），并用轮询确保每个轨道都会被更新
+    const compareActiveSlots = (isCompareMode && state.compareMode && Array.isArray(state.compareMode.activeSlots)) ? state.compareMode.activeSlots : [];
+    const compareSlotVisibility = (isCompareMode && state.compareMode) ? (state.compareMode.slotVisibility || {}) : {};
+    const compareVisibleSlotIndices = [];
+    if (isCompareMode && compareActiveSlots.length > 0) {
+        for (let idx = 0; idx < compareActiveSlots.length; idx++) {
+            const slot = compareActiveSlots[idx];
+            if (!slot) continue;
+            if (compareSlotVisibility[slot.slotIndex] !== false) compareVisibleSlotIndices.push(idx);
+        }
+    }
+    if (state.rollingMode && state.rollingMode.compareRoundRobinIndex === undefined) {
+        state.rollingMode.compareRoundRobinIndex = 0;
+    }
+
+    // 比照模式：严格按轮询选择“被替换点”（同一 slot 内替换）
+    function pickCompareTargetIndex(pickedOrbitalIndex, orbitalKey) {
+        if (!state.pointOrbitalIndices || state.pointCount <= 0) return -1;
+
+        // 1) 先从该轨道的点集合里抽样（O(1) 期望）
+        const list = state.orbitalPointsMap ? state.orbitalPointsMap[orbitalKey] : null;
+        if (Array.isArray(list) && list.length > 0) {
+            const tries = Math.min(30, list.length);
+            for (let t = 0; t < tries; t++) {
+                const cand = list[Math.floor(Math.random() * list.length)];
+                if (cand === undefined || cand === null) continue;
+                if (cand < 0 || cand >= state.pointCount) continue;
+                if (state.pointOrbitalIndices[cand] === pickedOrbitalIndex) return cand;
+            }
+        }
+
+        // 2) 兜底：用游标做有限步扫描，避免“随机扫不到”导致看起来只更新一个轨道
+        if (!state.rollingMode) state.rollingMode = {};
+        let cursor = Number.isInteger(state.rollingMode.compareScanCursor)
+            ? state.rollingMode.compareScanCursor
+            : Math.floor(Math.random() * state.pointCount);
+
+        const maxSteps = Math.min(state.pointCount, 2000);
+        for (let step = 0; step < maxSteps; step++) {
+            const idx = (cursor + step) % state.pointCount;
+            if (state.pointOrbitalIndices[idx] === pickedOrbitalIndex) {
+                state.rollingMode.compareScanCursor = (idx + 1) % state.pointCount;
+                return idx;
+            }
+        }
+
+        state.rollingMode.compareScanCursor = (cursor + maxSteps) % state.pointCount;
+        return -1;
+    }
+
     for (let k = 0; k < pointsToUpdate; k++) {
-        // 1. 随机选择一个要被替换的点
-        const targetIndex = Math.floor(Math.random() * state.pointCount);
+        // 1) 选择要被替换的点：
+        // - 比照模式：严格轮询每个可见 slot，并且只在该 slot 内替换
+        // - 其他模式：全局随机替换
+        let forcedCompare = null;
+        let targetIndex = -1;
+
+        if (isCompareMode && compareVisibleSlotIndices.length > 0 && isIndependentMode) {
+            const rr = (state.rollingMode && Number.isInteger(state.rollingMode.compareRoundRobinIndex)) ? state.rollingMode.compareRoundRobinIndex : 0;
+            const pickedOrbitalIndex = compareVisibleSlotIndices[rr % compareVisibleSlotIndices.length];
+            if (state.rollingMode) state.rollingMode.compareRoundRobinIndex = rr + 1;
+
+            const slot = compareActiveSlots[pickedOrbitalIndex];
+            if (!slot) continue;
+            const key = `${slot.atom || 'H'}_${slot.orbital}_slot${slot.slotIndex}`;
+            forcedCompare = { orbitalIndex: pickedOrbitalIndex, orbitalKey: key, atomType: slot.atom || 'H' };
+
+            targetIndex = pickCompareTargetIndex(pickedOrbitalIndex, key);
+            if (targetIndex < 0) continue;
+        } else {
+            targetIndex = Math.floor(Math.random() * state.pointCount);
+        }
+
+        // 【关键修复】在覆盖 pointOrbitalIndices 之前缓存旧索引与对应的样本 key
+        // 用于正确执行 orbitalSamplesMap 的 "One In, One Out"，避免滚动生成时图表看似不更新。
+        const prevOrbitalIdx = state.pointOrbitalIndices ? state.pointOrbitalIndices[targetIndex] : -1;
+        let prevOrbitalKey = null;
+        if (prevOrbitalIdx !== undefined && prevOrbitalIdx >= 0) {
+            if (isCompareMode && state.compareMode && state.compareMode.activeSlots) {
+                const prevSlot = state.compareMode.activeSlots[prevOrbitalIdx];
+                if (prevSlot) {
+                    prevOrbitalKey = `${prevSlot.atom || 'H'}_${prevSlot.orbital}_slot${prevSlot.slotIndex}`;
+                }
+            } else if (state.currentOrbitals && prevOrbitalIdx < state.currentOrbitals.length) {
+                prevOrbitalKey = state.currentOrbitals[prevOrbitalIdx];
+            }
+        }
 
         // 【关键修复】跳过属于隐藏轨道的点，防止隐藏轨道的点被"蚕食"
         if (state.pointOrbitalIndices) {
@@ -1259,8 +1406,10 @@ window.ElectronCloud.Sampling.performRollingUpdate = function () {
         }
 
         // 【关键修复】更新映射表（在覆盖前移除旧映射）
-        if (state.pointOrbitalIndices) {
-            const oldOrbitalIdx = state.pointOrbitalIndices[targetIndex];
+        // 比照模式 + forcedCompare（同轨道内替换）：不应把点从 orbitalPointsMap 移来移去，否则会导致某些轨道“只出不进”/统计偏置
+        const isCompareSameOrbitalReplace = !!(isCompareMode && forcedCompare && prevOrbitalKey && forcedCompare.orbitalKey && prevOrbitalKey === forcedCompare.orbitalKey);
+        if (!isCompareSameOrbitalReplace && state.pointOrbitalIndices) {
+            const oldOrbitalIdx = prevOrbitalIdx;
 
             if (isHybridMode && state.hybridOrbitalPointsMap) {
                 // 杂化模式：从旧的杂化轨道map中移除
@@ -1274,10 +1423,8 @@ window.ElectronCloud.Sampling.performRollingUpdate = function () {
                 }
             } else if (isIndependentMode && state.orbitalPointsMap) {
                 // 普通独立模式（比照/多选）：从旧的轨道map中移除
-                if (oldOrbitalIdx !== undefined && oldOrbitalIdx >= 0 &&
-                    state.currentOrbitals && oldOrbitalIdx < state.currentOrbitals.length) {
-                    const oldKey = state.currentOrbitals[oldOrbitalIdx];
-                    const oldMap = state.orbitalPointsMap[oldKey];
+                if (oldOrbitalIdx !== undefined && oldOrbitalIdx >= 0 && prevOrbitalKey) {
+                    const oldMap = state.orbitalPointsMap[prevOrbitalKey];
                     if (oldMap) {
                         const idxInMap = oldMap.indexOf(targetIndex);
                         if (idxInMap !== -1) {
@@ -1330,16 +1477,20 @@ window.ElectronCloud.Sampling.performRollingUpdate = function () {
             // 【普通采样】
             if (isCompareMode && state.compareMode && state.compareMode.activeSlots) {
                 // 【比照模式】只为可见的 slot 生成新点
-                const visibleSlotIndices = [];
-                state.compareMode.activeSlots.forEach((slot, idx) => {
-                    const slotVis = state.compareMode.slotVisibility || {};
-                    if (slotVis[slot.slotIndex] !== false) {
-                        visibleSlotIndices.push(idx); // 保存 activeSlots 的索引
-                    }
-                });
+                if (forcedCompare) {
+                    orbitalIndex = forcedCompare.orbitalIndex;
+                } else {
+                    const visibleSlotIndices = [];
+                    state.compareMode.activeSlots.forEach((slot, idx) => {
+                        const slotVis = state.compareMode.slotVisibility || {};
+                        if (slotVis[slot.slotIndex] !== false) {
+                            visibleSlotIndices.push(idx); // 保存 activeSlots 的索引
+                        }
+                    });
 
-                if (visibleSlotIndices.length === 0) continue;
-                orbitalIndex = visibleSlotIndices[Math.floor(Math.random() * visibleSlotIndices.length)];
+                    if (visibleSlotIndices.length === 0) continue;
+                    orbitalIndex = visibleSlotIndices[Math.floor(Math.random() * visibleSlotIndices.length)];
+                }
             } else if (isIndependentMode) {
                 // 【多选模式】独立模式下也只为可见轨道生成新点
                 // 收集可见轨道
@@ -1364,9 +1515,13 @@ window.ElectronCloud.Sampling.performRollingUpdate = function () {
 
             // 【关键修复】比照模式下从 activeSlots 获取 orbitalKey，确保与 handleWorkerResult 完全一致
             if (isCompareMode && state.compareMode && state.compareMode.activeSlots) {
-                const slot = state.compareMode.activeSlots[orbitalIndex];
-                // 必须构建完整键名：atom_orbital_slotIndex
-                orbitalKey = slot ? `${slot.atom || 'H'}_${slot.orbital}_slot${slot.slotIndex}` : state.currentOrbitals[orbitalIndex];
+                if (forcedCompare && forcedCompare.orbitalKey) {
+                    orbitalKey = forcedCompare.orbitalKey;
+                } else {
+                    const slot = state.compareMode.activeSlots[orbitalIndex];
+                    // 必须构建完整键名：atom_orbital_slotIndex
+                    orbitalKey = slot ? `${slot.atom || 'H'}_${slot.orbital}_slot${slot.slotIndex}` : state.currentOrbitals[orbitalIndex];
+                }
             } else {
                 orbitalKey = state.currentOrbitals[orbitalIndex];
             }
@@ -1374,11 +1529,21 @@ window.ElectronCloud.Sampling.performRollingUpdate = function () {
             // 【关键修复】比照模式下使用正确的原子类型
             let atomType = currentAtom;
             if (isCompareMode && state.compareMode && state.compareMode.activeSlots) {
-                const slot = state.compareMode.activeSlots[orbitalIndex];
-                if (slot) atomType = slot.atom || 'H';
+                if (forcedCompare && forcedCompare.atomType) {
+                    atomType = forcedCompare.atomType;
+                } else {
+                    const slot = state.compareMode.activeSlots[orbitalIndex];
+                    if (slot) atomType = slot.atom || 'H';
+                }
             }
 
-            const result = Hydrogen.importanceSample(p.n, p.l, p.angKey, state.samplingBoundary, atomType);
+            // 比照模式：同一轨道内替换时，尽量多尝试几次以保证每个轨道都能持续更新
+            let result = null;
+            const maxTries = (isCompareMode && forcedCompare) ? 12 : 1;
+            for (let t = 0; t < maxTries; t++) {
+                result = Hydrogen.importanceSample(p.n, p.l, p.angKey, state.samplingBoundary, atomType);
+                if (result && result.accepted) break;
+            }
             if (!result || !result.accepted) continue;
             ({ x, y, z, r, theta, phi } = result);
         }
@@ -1415,45 +1580,79 @@ window.ElectronCloud.Sampling.performRollingUpdate = function () {
         }
 
         if (isIndependentMode && state.orbitalPointsMap && orbitalKey) {
-            if (!state.orbitalPointsMap[orbitalKey]) state.orbitalPointsMap[orbitalKey] = [];
-            state.orbitalPointsMap[orbitalKey].push(targetIndex);
+            // 比照模式同轨道内替换：不需要修改 orbitalPointsMap（点不应在轨道之间漂移）
+            if (!isCompareSameOrbitalReplace) {
+                if (!state.orbitalPointsMap[orbitalKey]) state.orbitalPointsMap[orbitalKey] = [];
+                state.orbitalPointsMap[orbitalKey].push(targetIndex);
+            }
 
             // 【v11.0 修复】滚动生成模式下需要更新 orbitalSamplesMap 以驱动图表
-            // 采用 "One In, One Out" 策略防止数组无限增长
             if (state.orbitalSamplesMap) {
-                // 1. 移除旧样本
-                const oldOrbitalIdx = state.pointOrbitalIndices ? state.pointOrbitalIndices[targetIndex] : -1;
-                let oldKey = null;
+                const indexMap = state.orbitalSampleIndexByPoint;
+                const entry = indexMap ? indexMap[targetIndex] : null;
 
-                if (isCompareMode && state.compareMode && state.compareMode.activeSlots) {
-                    const oldSlot = state.compareMode.activeSlots[oldOrbitalIdx];
-                    if (oldSlot) {
-                        oldKey = `${oldSlot.atom || 'H'}_${oldSlot.orbital}_slot${oldSlot.slotIndex}`;
+                // 比照模式同轨道内替换：就地更新对应样本（最稳定，不引入删加偏置）
+                if (isCompareSameOrbitalReplace) {
+                    const arr = state.orbitalSamplesMap[orbitalKey];
+                    if (arr) {
+                        // 若映射缺失/失效，先按 pointIndex 扫描一次来修复映射
+                        if ((!entry || entry.key !== orbitalKey || !Number.isInteger(entry.idx)) && state.orbitalSampleIndexByPoint) {
+                            for (let i = 0; i < arr.length; i++) {
+                                const s = arr[i];
+                                if (s && s.pointIndex === targetIndex) {
+                                    state.orbitalSampleIndexByPoint[targetIndex] = { key: orbitalKey, idx: i };
+                                    break;
+                                }
+                            }
+                        }
+
+                        const fixedEntry = state.orbitalSampleIndexByPoint ? state.orbitalSampleIndexByPoint[targetIndex] : null;
+                        if (fixedEntry && fixedEntry.key === orbitalKey && Number.isInteger(fixedEntry.idx) && fixedEntry.idx >= 0 && fixedEntry.idx < arr.length) {
+                            const s = arr[fixedEntry.idx];
+                            if (s) {
+                                s.r = r;
+                                s.theta = theta;
+                                s.phi = phi;
+                                s.pointIndex = targetIndex;
+                            } else {
+                                arr[fixedEntry.idx] = { r, theta, phi, probability: 0, pointIndex: targetIndex };
+                            }
+                        } else {
+                            // 极端回退：仍然保持集合规模稳定，追加并写回映射
+                            arr.push({ r, theta, phi, probability: 0, pointIndex: targetIndex });
+                            if (!state.orbitalSampleIndexByPoint) state.orbitalSampleIndexByPoint = {};
+                            state.orbitalSampleIndexByPoint[targetIndex] = { key: orbitalKey, idx: arr.length - 1 };
+                        }
                     }
-                } else if (oldOrbitalIdx >= 0 && state.currentOrbitals) {
-                    oldKey = state.currentOrbitals[oldOrbitalIdx];
-                }
+                } else {
+                    // 1. 移除旧样本（如果存在且 key 不同）
+                    if (prevOrbitalKey && state.orbitalSamplesMap[prevOrbitalKey]) {
+                        const oldSamples = state.orbitalSamplesMap[prevOrbitalKey];
+                        const removeEntry = indexMap ? indexMap[targetIndex] : null;
 
-                if (oldKey && state.orbitalSamplesMap[oldKey]) {
-                    const oldSamples = state.orbitalSamplesMap[oldKey];
-                    if (oldSamples.length > 0) {
-                        // 随机移除一个旧点，保持统计分布大致不变
-                        const removeIdx = Math.floor(Math.random() * oldSamples.length);
-                        // Swap with last and pop (O(1))
-                        oldSamples[removeIdx] = oldSamples[oldSamples.length - 1];
-                        oldSamples.pop();
+                        if (removeEntry && removeEntry.key === prevOrbitalKey && Number.isInteger(removeEntry.idx) && removeEntry.idx >= 0 && removeEntry.idx < oldSamples.length) {
+                            const removeIdx = removeEntry.idx;
+                            const lastIdx = oldSamples.length - 1;
+                            if (removeIdx !== lastIdx) {
+                                const swapped = oldSamples[lastIdx];
+                                oldSamples[removeIdx] = swapped;
+                                if (swapped && swapped.pointIndex !== undefined && indexMap) {
+                                    indexMap[swapped.pointIndex] = { key: prevOrbitalKey, idx: removeIdx };
+                                }
+                            }
+                            oldSamples.pop();
+                            if (indexMap) delete indexMap[targetIndex];
+                        }
                     }
-                }
 
-                // 2. 添加新样本
-                if (orbitalKey) {
-                    if (!state.orbitalSamplesMap[orbitalKey]) state.orbitalSamplesMap[orbitalKey] = [];
-                    state.orbitalSamplesMap[orbitalKey].push({
-                        r: r,
-                        theta: theta,
-                        phi: phi, // 确保 phi 也被记录
-                        probability: 0 // 滚动模式不存储准确概率值，图表主要用坐标
-                    });
+                    // 2. 添加新样本
+                    if (orbitalKey) {
+                        if (!state.orbitalSamplesMap[orbitalKey]) state.orbitalSamplesMap[orbitalKey] = [];
+                        const arr = state.orbitalSamplesMap[orbitalKey];
+                        arr.push({ r, theta, phi, probability: 0, pointIndex: targetIndex });
+                        if (!state.orbitalSampleIndexByPoint) state.orbitalSampleIndexByPoint = {};
+                        state.orbitalSampleIndexByPoint[targetIndex] = { key: orbitalKey, idx: arr.length - 1 };
+                    }
                 }
             }
         }
@@ -1469,8 +1668,16 @@ window.ElectronCloud.Sampling.performRollingUpdate = function () {
 
         if (isIndependentMode && !isMultiselectMode) {
             // 比照模式
-            if (orbitalIndex < constants.compareColors.length) {
-                const c = constants.compareColors[orbitalIndex].value;
+            // 【关键修复】颜色绑定到 UI slotIndex，避免空 slot 造成颜色前移
+            let colorIndex = orbitalIndex;
+            if (isCompareMode && state.compareMode && Array.isArray(state.compareMode.activeSlots)) {
+                const slot = state.compareMode.activeSlots[orbitalIndex];
+                if (slot && Number.isInteger(slot.slotIndex)) colorIndex = slot.slotIndex;
+            }
+
+            if (constants.compareColors && constants.compareColors.length > 0) {
+                const safe = ((colorIndex % constants.compareColors.length) + constants.compareColors.length) % constants.compareColors.length;
+                const c = constants.compareColors[safe].value;
                 r_color = c[0]; g_color = c[1]; b_color = c[2];
             } else {
                 r_color = 1; g_color = 1; b_color = 1;

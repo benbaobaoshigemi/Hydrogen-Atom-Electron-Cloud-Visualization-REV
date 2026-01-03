@@ -323,17 +323,20 @@ window.ElectronCloud.Scene.animate = function () {
         if (isDelayPassed && hasData && (now - state.lastChartUpdateTime) >= 1000) {
             state.lastChartUpdateTime = now;
 
-            // 只有当有径向数据时才更新图表数据
-            if (state.radialSamples.length > 0) {
-                window.ElectronCloud.Orbital.updateBackgroundChartData();
-            }
+            // 杂化模式 UI 不显示图表：跳过图表刷新链路
+            if (!state.isHybridMode) {
+                // 只有当有径向数据时才更新图表数据
+                if (state.radialSamples.length > 0) {
+                    window.ElectronCloud.Orbital.updateBackgroundChartData();
+                }
 
-            // 如果数据面板可见，异步刷新图表以避免阻塞动画循环
-            const dataPanel = document.getElementById('data-panel');
-            if (dataPanel && !dataPanel.classList.contains('collapsed')) {
-                setTimeout(() => {
-                    window.ElectronCloud.Orbital.drawProbabilityChart(false);
-                }, 0);
+                // 如果数据面板可见，异步刷新图表以避免阻塞动画循环
+                const dataPanel = document.getElementById('data-panel');
+                if (dataPanel && !dataPanel.classList.contains('collapsed')) {
+                    setTimeout(() => {
+                        window.ElectronCloud.Orbital.drawProbabilityChart(false);
+                    }, 0);
+                }
             }
         }
 
@@ -951,8 +954,8 @@ window.ElectronCloud.Scene.animate = function () {
 
             if (now - (state.rollingMode.lastUpdateTime || 0) > 200) {
                 // 比照模式和多选模式使用 orbitalSamplesMap，由 sampling.js 负责更新
-                // 这里只更新单轨模式和杂化模式的图表
-                if (!isCompareMode && !isMultiselectMode) {
+                // 这里只更新单轨模式的图表（杂化模式 UI 不显示图表）
+                if (!isCompareMode && !isMultiselectMode && !state.isHybridMode) {
                     // 更新图表数据源（仅适用于非比照/多选模式）
                     if (window.ElectronCloud.Orbital.updateBackgroundChartData) {
                         window.ElectronCloud.Orbital.updateBackgroundChartData();
@@ -1132,17 +1135,20 @@ window.ElectronCloud.Scene.onSamplingCompleted = function () {
         }
     }
 
-    // 最后一次更新后台数据
-    window.ElectronCloud.Orbital.updateBackgroundChartData();
+    // 杂化模式 UI 不显示图表：跳过采样完成后的图表更新与强制展开
+    if (!state.isHybridMode) {
+        // 最后一次更新后台数据
+        window.ElectronCloud.Orbital.updateBackgroundChartData();
 
-    // 采样完成后确保数据面板可见（不改变用户的展开/收起状态）
-    const dataPanel = document.getElementById('data-panel');
-    if (dataPanel) {
-        dataPanel.classList.remove('collapsed');
+        // 采样完成后确保数据面板可见（不改变用户的展开/收起状态）
+        const dataPanel = document.getElementById('data-panel');
+        if (dataPanel) {
+            dataPanel.classList.remove('collapsed');
+        }
+
+        // 采样完成后立即显示图表
+        window.ElectronCloud.Orbital.drawProbabilityChart(true);
     }
-
-    // 采样完成后立即显示图表
-    window.ElectronCloud.Orbital.drawProbabilityChart(true);
 
     // 停止绘制
     state.isDrawing = false;

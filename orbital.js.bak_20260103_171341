@@ -923,21 +923,13 @@ window.ElectronCloud.Orbital.drawProbabilityChart = function (final = true) {
         panel.classList.remove('collapsed');
     }
 
-    const rawType = ui.plotTypeSelect ? ui.plotTypeSelect.value : 'radial';
-    const normalizedRawType = String(rawType || 'radial').trim();
-    const type = (normalizedRawType === 'energyDensityGamma') ? 'energyCumulativeGamma' : normalizedRawType;
+    const type = ui.plotTypeSelect ? ui.plotTypeSelect.value : 'radial';
 
     // 确保能量图有可用的纯理论数据（不依赖采样）
     if (['potential', 'dEdr', 'localEnergy'].includes(type) && (!state.backgroundChartData || !state.backgroundChartData.energy)) {
         if (window.ElectronCloud?.Orbital?.initTheoryData) {
             window.ElectronCloud.Orbital.initTheoryData();
         }
-    // 能量密度/累计也依赖后台预计算；缺失时尝试补齐一次
-    if (['energyDensity', 'energyCumulative', 'energyCumulativeGamma'].includes(type) && (!state.backgroundChartData || !state.backgroundChartData.energy)) {
-        if (window.ElectronCloud?.Orbital?.updateBackgroundChartData) {
-            window.ElectronCloud.Orbital.updateBackgroundChartData();
-        }
-    }
     }
 
     // 检查是否是对比模式
@@ -945,7 +937,7 @@ window.ElectronCloud.Orbital.drawProbabilityChart = function (final = true) {
 
     // 【关键修复】对比模式下图表必须优先走 compare 渲染路径；否则会落入“多选/平均”的后台数据渲染，表现成多选模式
     // 即使采样尚未开始（orbitalSamplesMap 为空），compare 渲染也应能显示纯理论曲线（由 DataPanel.renderChartCompare 兜底）
-    if (isCompareMode && ['radial', 'angular', 'phi', 'azimuthal', 'energyDensity', 'energyCumulative', 'energyCumulativeGamma'].includes(type)) {
+    if (isCompareMode && ['radial', 'angular', 'phi', 'azimuthal', 'energyDensity', 'energyCumulative'].includes(type)) {
         let chartData = state.orbitalSamplesMap || {};
 
         // 【性能优化】如果是滚动生成过程中的动态更新（!final），只使用最近的数据切片
@@ -993,21 +985,14 @@ window.ElectronCloud.Orbital.drawProbabilityChart = function (final = true) {
             { centers: Array.from(e.centers), values: Array.from(e.theoryDensity) }
         );
         return;
-    } else if ((type === 'energyCumulative' || type === 'energyCumulativeGamma') && state.backgroundChartData.energy) {
+    } else if (type === 'energyCumulative' && state.backgroundChartData.energy) {
         // 能量期望累计：累计采样数据作为直方图，理论曲线叠加
         const e = state.backgroundChartData.energy;
-        console.log('使用累计采样数据渲染能量累计图', type);
-        if (type === 'energyCumulativeGamma' && DataPanel.renderChartEnergyCumulativeGamma) {
-            DataPanel.renderChartEnergyCumulativeGamma(
-                { counts: Array.from(e.samplingCumulative), edges: Array.from(e.edges) },
-                { centers: Array.from(e.centers), values: Array.from(e.theoryCumulative) }
-            );
-        } else {
-            DataPanel.renderChartEnergyCumulative(
-                { counts: Array.from(e.samplingCumulative), edges: Array.from(e.edges) },
-                { centers: Array.from(e.centers), values: Array.from(e.theoryCumulative) }
-            );
-        }
+        console.log('使用累计采样数据渲染能量累计图');
+        DataPanel.renderChartEnergyCumulative(
+            { counts: Array.from(e.samplingCumulative), edges: Array.from(e.edges) },
+            { centers: Array.from(e.centers), values: Array.from(e.theoryCumulative) }
+        );
         return;
     } else if (type === 'potential' || type === 'dEdr' || type === 'localEnergy') {
         // 能量相关图表：如果没有在上面处理（说明没有backgroundData），也不应该 fall through 到重新计算逻辑
@@ -1029,42 +1014,6 @@ window.ElectronCloud.Orbital.drawProbabilityChart = function (final = true) {
     }
 
     // 如果没有后台数据，则重新计算
-
-    // 能量类图表不支持纯前台动态重算：缺失时尝试触发一次后台预计算；仍不可用则直接返回（避免落入 unknown）
-    if (['energyDensity', 'energyCumulative', 'energyCumulativeGamma'].includes(type)) {
-        if ((!state.backgroundChartData || !state.backgroundChartData.energy) && window.ElectronCloud?.Orbital?.updateBackgroundChartData) {
-            window.ElectronCloud.Orbital.updateBackgroundChartData();
-        }
-        if (state.backgroundChartData && state.backgroundChartData.energy) {
-            const e = state.backgroundChartData.energy;
-            if (type === 'energyDensity') {
-                DataPanel.renderChartEnergyDensity(
-                    { counts: Array.from(e.samplingDensity), edges: Array.from(e.edges) },
-                    { centers: Array.from(e.centers), values: Array.from(e.theoryDensity) }
-                );
-            } else if (type === 'energyCumulative') {
-                DataPanel.renderChartEnergyCumulative(
-                    { counts: Array.from(e.samplingCumulative), edges: Array.from(e.edges) },
-                    { centers: Array.from(e.centers), values: Array.from(e.theoryCumulative) }
-                );
-            } else if (type === 'energyCumulativeGamma') {
-                if (DataPanel.renderChartEnergyCumulativeGamma) {
-                    DataPanel.renderChartEnergyCumulativeGamma(
-                        { counts: Array.from(e.samplingCumulative), edges: Array.from(e.edges) },
-                        { centers: Array.from(e.centers), values: Array.from(e.theoryCumulative) }
-                    );
-                } else {
-                    DataPanel.renderChartEnergyCumulative(
-                        { counts: Array.from(e.samplingCumulative), edges: Array.from(e.edges) },
-                        { centers: Array.from(e.centers), values: Array.from(e.theoryCumulative) }
-                    );
-                }
-            }
-        } else {
-            console.warn('能量图表后台数据不可用，无法动态计算:', type);
-        }
-        return;
-    }
     console.log('后台数据不可用，重新计算图表数据');
     const angularBins = 180;
 

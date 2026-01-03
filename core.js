@@ -42,6 +42,7 @@ window.ElectronCloud.state = {
     orbitalPointsMap: {},
     originalPositions: null,
     orbitalSamplesMap: {},
+    orbitalSampleIndexByPoint: {}, // pointIndex -> { key, idx }，用于滚动生成时让图表与点云严格一致
     pointOrbitalIndices: null, // 每个点的轨道索引（Int16Array）
 
     // 3D 相关
@@ -233,6 +234,7 @@ window.ElectronCloud.resetState = function () {
     state.orbitalPointsMap = {};
     state.originalPositions = null;
     state.orbitalSamplesMap = {};
+    state.orbitalSampleIndexByPoint = {};
     state.pointOrbitalIndices = null;
 
     // 重置星空闪烁基础颜色

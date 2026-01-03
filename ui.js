@@ -1,6 +1,8 @@
-﻿// UI 控件交互模块
+// UI 控件交互模块
 window.ElectronCloud = window.ElectronCloud || {};
 window.ElectronCloud.UI = {};
+
+console.log('[ui.js] build 2026-01-03 v93 (energyCumulativeGamma enabled)');
 
 // 初始化UI事件监听
 window.ElectronCloud.UI.init = function () {
@@ -90,6 +92,10 @@ window.ElectronCloud.UI.init = function () {
 
             // 重置状态（清除采样数据等）
             window.ElectronCloud.resetState();
+            // 【关键修复】重置时强制销毁图表，防止旧图表实例（如能量图配置）残留影响后续显示
+            if (window.DataPanel && window.DataPanel.destroyChart) {
+                window.DataPanel.destroyChart();
+            }
             window.ElectronCloud.Orbital.clearDrawing();
 
             // 如果是多选或杂化模式，恢复轨道选择
@@ -186,11 +192,11 @@ window.ElectronCloud.UI.init = function () {
         // 监听全屏状态变化更新图标
         document.addEventListener('fullscreenchange', () => {
             if (document.fullscreenElement) {
-                fullscreenBtn.textContent = '⛶'; // 或者换成退出全屏的图标
+                fullscreenBtn.textContent = '?'; // 或者换成退出全屏的图标
                 fullscreenBtn.title = '退出全屏';
                 fullscreenBtn.classList.add('active');
             } else {
-                fullscreenBtn.textContent = '⛶';
+                fullscreenBtn.textContent = '?';
                 fullscreenBtn.title = '全屏模式';
                 fullscreenBtn.classList.remove('active');
             }
@@ -205,6 +211,8 @@ window.ElectronCloud.UI.init = function () {
 
     if (ui.plotTypeSelect) {
         ui.plotTypeSelect.addEventListener('change', () => {
+            // 杂化模式 UI 不展示图表：避免触发无意义的 DataPanel 渲染
+            if (window.ElectronCloud?.state?.isHybridMode) return;
             window.ElectronCloud.Orbital.drawProbabilityChart();
         });
     }
@@ -2129,8 +2137,12 @@ window.ElectronCloud.UI.onMultiselectToggle = function () {
         return;
     }
 
-    // 【强制清除】切换模式时，无论如何都先清除所有选择
-    window.ElectronCloud.UI.resetOrbitalSelections();
+    const isMultiselect = ui.multiselectToggle && ui.multiselectToggle.checked;
+
+    // 【修复】仅在进入多选模式时清除选择；退出多选时应保留/收敛为单选
+    if (isMultiselect) {
+        window.ElectronCloud.UI.resetOrbitalSelections();
+    }
 
     // 【强制销毁重建】切换到/退出多选模式时，图表必须销毁重建
     if (window.DataPanel && window.DataPanel.destroyChart) {
@@ -2166,7 +2178,6 @@ window.ElectronCloud.UI.onMultiselectToggle = function () {
         window.ElectronCloud.UI.enableAngular3DToggle();
     }
 
-    const isMultiselect = ui.multiselectToggle && ui.multiselectToggle.checked;
     const label = document.querySelector('label[for="orbital-select"]');
     const controlPanel = document.getElementById('control-panel');
     const multiselectControls = document.querySelector('.multiselect-controls');
@@ -2269,8 +2280,12 @@ window.ElectronCloud.UI.onCompareToggle = function () {
         return;
     }
 
-    // 【强制清除】切换模式时，无论如何都先清除所有选择
-    window.ElectronCloud.UI.resetOrbitalSelections();
+    const isCompare = ui.compareToggle && ui.compareToggle.checked;
+
+    // 【修复】仅在进入比照模式时清除选择；退出比照时不强制清空
+    if (isCompare) {
+        window.ElectronCloud.UI.resetOrbitalSelections();
+    }
 
     // 互斥：取消多选模式
     if (ui.multiselectToggle && ui.multiselectToggle.checked) {
@@ -2285,7 +2300,6 @@ window.ElectronCloud.UI.onCompareToggle = function () {
         window.ElectronCloud.UI.setPlotTypeRestrictionsForMultiselect(false);
     }
 
-    const isCompare = ui.compareToggle && ui.compareToggle.checked;
     const label = document.querySelector('label[for="orbital-select"]');
     const controlPanel = document.getElementById('control-panel');
     const multiselectControls = document.querySelector('.multiselect-controls');
@@ -2739,6 +2753,7 @@ window.ElectronCloud.UI.enableAngularPlotOption = function () {
     }
 };
 
+
 // 更新清空所有选择按钮的状态
 window.ElectronCloud.UI.updateClearAllSelectionsState = function () {
     const ui = window.ElectronCloud.ui;
@@ -3048,7 +3063,7 @@ window.ElectronCloud.UI.startRotationRecording = function () {
 
             // 提示用户如何使用WebM文件
             setTimeout(() => {
-                alert('视频已保存为 WebM 格式\n\n使用方法：\n• 可直接在浏览器中播放\n• 可上传到 B站、YouTube 等平台\n• 如需转为 MP4，可使用在线工具或 FFmpeg');
+                alert('视频已保存为 WebM 格式\n\n使用方法：\n? 可直接在浏览器中播放\n? 可上传到 B站、YouTube 等平台\n? 如需转为 MP4，可使用在线工具或 FFmpeg');
             }, 200);
         };
 
@@ -3420,7 +3435,7 @@ window.ElectronCloud.UI.setPlotTypeRestrictionsForMultiselect = function (enable
     if (!ui || !ui.plotTypeSelect) return;
 
     const select = ui.plotTypeSelect;
-    const disabledValues = new Set(['potential', 'dEdr', 'localEnergy']);
+    const disabledValues = new Set(['energyDensity', 'energyCumulative', 'energyCumulativeGamma', 'energyDensityGamma']);
 
     Array.from(select.options).forEach(option => {
         if (!option) return;
@@ -3493,6 +3508,8 @@ window.ElectronCloud.UI.initModeSwitcher = function () {
                         compareToggle.dispatchEvent(new Event('change'));
                     }
                     if (multiselectToggle) multiselectToggle.checked = true;
+                    // 【新增】多选模式下禁用能量图表选项
+                    window.ElectronCloud.UI.setPlotTypeRestrictionsForMultiselect(true);
                     // 移除杂化模式的类和状态
                     if (controlPanel) controlPanel.classList.remove('hybrid-active');
                     state.isHybridMode = false;
@@ -3713,7 +3730,7 @@ window.ElectronCloud.UI.setHybridPanelMode = function (isHybridMode) {
         if (panelTitle) panelTitle.textContent = '杂化';
         if (panelTab) {
             // 右侧面板收起后的标签应提示“向左展开”
-            panelTab.textContent = '◂ 杂化';
+            panelTab.textContent = '? 杂化';
             panelTab.title = '点击展开杂化面板';
         }
     } else {
@@ -3723,7 +3740,7 @@ window.ElectronCloud.UI.setHybridPanelMode = function (isHybridMode) {
         dataPanel.classList.remove('hybrid-mode');
         if (panelTitle) panelTitle.textContent = '数据';
         if (panelTab) {
-            panelTab.textContent = '◂ 数据';
+            panelTab.textContent = '? 数据';
             panelTab.title = '点击展开数据面板';
         }
     }
@@ -3761,8 +3778,8 @@ window.ElectronCloud.UI.updateHybridOrbitalButtons = function () {
         // 显示不支持信息
         const msg = document.createElement('div');
         msg.className = 'hybrid-unsupported-msg';
-        msg.textContent = '⚠️ 构型不支持';
-        msg.title = '仅支持 sp, sp², sp³, sp³d, sp³d² 杂化';
+        msg.textContent = '?? 构型不支持';
+        msg.title = '仅支持 sp, sp2, sp3, sp3d, sp3d2 杂化';
         msg.style.cssText = 'color: #ff6b6b; padding: 12px; text-align: center; font-size: 14px; font-weight: 500;';
         container.appendChild(msg);
         return; // 不生成轨道按钮
@@ -4225,6 +4242,10 @@ window.ElectronCloud.UI.onCompareIndicatorClick = function (event) {
  * 同步比照模式选择到主选择器
  * 【重构】使用slot索引作为标识，支持相同轨道不同原子
  */
+/**
+ * 同步比照模式选择到主选择器
+ * 【重构】使用slot索引作为标识，复原真实的UI输入数据
+ */
 window.ElectronCloud.UI.syncCompareToMainSelect = function () {
     const state = window.ElectronCloud.state;
     const mainSelect = document.getElementById('orbital-select');
@@ -4233,26 +4254,59 @@ window.ElectronCloud.UI.syncCompareToMainSelect = function () {
     // 清除所有选中
     Array.from(mainSelect.options).forEach(opt => opt.selected = false);
 
-    // 【重构】构建slot配置数组，每个slot独立（即使轨道相同）
-    const activeSlots = [];  // [{slotIndex, orbital, atom}]
-    const selectedOrbitalKeys = new Set();  // 用于更新主选择器的显示
+    // 【关键修复】直接从DOM读取最新的选择，而不是依赖可能过期的state
+    // 这避免了 initCompareOrbitalSelectors 被移除后状态无法更新的问题
+    const activeSlots = [];
+    const slotsState = []; // 用于回写 state.compareMode.slots
+    const selectedOrbitalKeys = new Set();
 
-    state.compareMode.slots.forEach((slot, index) => {
-        if (slot.orbital) {
-            activeSlots.push({
+    // 【关键修复】创建新的原子列表和Map
+    const newAtoms = [];
+    const newOrbitalAtomMap = {};
+
+    const rows = document.querySelectorAll('.compare-row');
+    rows.forEach((row, index) => {
+        const orbitalSelect = row.querySelector('.compare-orbital-select');
+        const atomSelect = row.querySelector('.compare-atom-select');
+
+        if (orbitalSelect && atomSelect) {
+            const orbital = orbitalSelect.value;
+            const atom = atomSelect.value || 'H';
+
+            // 记录槽位状态（即使未选中轨道也要记录，保持索引一致）
+            slotsState.push({
                 slotIndex: index,
-                orbital: slot.orbital,
-                atom: slot.atom || 'H'
+                orbital: orbital,
+                atom: atom
             });
-            selectedOrbitalKeys.add(slot.orbital);
+
+            if (orbital) {
+                activeSlots.push({
+                    slotIndex: index,
+                    orbital: orbital,
+                    atom: atom
+                });
+                selectedOrbitalKeys.add(orbital);
+
+                // 填充数据用于 sampling.js
+                newAtoms.push(atom);
+                newOrbitalAtomMap[orbital] = atom;
+            }
         }
     });
+
+    // 更新 state.compareMode.slots 以保持同步
+    state.compareMode.slots = slotsState;
 
     // 在主选择器中选中这些轨道（仅用于UI显示）
     selectedOrbitalKeys.forEach(orbital => {
         const option = mainSelect.querySelector(`option[value="${orbital}"]`);
         if (option) option.selected = true;
     });
+
+    // 【关键修复】更新 state.compareMode 的原子数据
+    state.compareMode.atoms = newAtoms;
+    state.compareMode.orbitalAtomMap = newOrbitalAtomMap;
 
     // 【重构】保存activeSlots到state（供采样使用）
     state.compareMode.activeSlots = activeSlots;
@@ -4265,7 +4319,7 @@ window.ElectronCloud.UI.syncCompareToMainSelect = function () {
         slotIndex: s.slotIndex
     }));
 
-    // 更新 currentOrbitals（用于兼容其他代码）
+    // 更新 currentOrbitals（与 activeSlots 顺序一致）
     state.currentOrbitals = activeSlots.map(s => s.orbital);
 
     // 更新选择计数
@@ -4461,3 +4515,5 @@ window.ElectronCloud.UI.updateCompareAtomCustomSelect = function (atomSelect) {
         }
     }
 };
+
+// ==================== [紧急修复] P0级事故修复：比照模式原子选择支持 ====================

@@ -1,6 +1,7 @@
-// 数据面板逻辑（与主渲染逻辑解耦）
+﻿// 数据面板逻辑（与主渲染逻辑解耦）
 // 暴露 DataPanel 全局对象，供 script.js 调用
 (function () {
+  console.log('[data_panel.js] build 2026-01-03 v11 (EnergyCumulativeDiag nearCore tol)');
   const state = {
     chart: null,
     collapsed: false,
@@ -9,12 +10,16 @@
     waveHidden: true, // 记录波函数曲线的隐藏状态（默认隐藏）
     angularTheoryHidden: false, // 记录角向理论曲线的隐藏状态
     compareTheoryHidden: true, // 记录比照模式理论曲线的隐藏状态（默认隐藏）
-    potentialTheoryHidden: false, // 记录势能图理论曲线的隐藏状态（默认显示）
     phiTheoryHidden: false, // 记录φ角向理论曲线的隐藏状态
-    dEdrTheoryHidden: false, // 记录dE/dr理论曲线的隐藏状态（默认显示）
-    potentialLogTheoryHidden: false, // 记录E(log r)理论曲线的隐藏状态
-    dEdrLogTheoryHidden: false, // 记录 dE/dr 双对数理论曲线的隐藏状态
-    zeffHidden: false,          // 记录有效核电荷 Z_eff 曲线的隐藏状态
+    chart: null,                // Chart.js 实例
+    // 滚动生成相关缓存：用于稳定坐标轴/网格，避免每次滚动导致“硬刷新式跳变”
+    rollingCache: {
+      lastEnabled: null,
+      // key -> {min, max}
+      yAxisLocks: {},
+      // type -> {rmax, bins}
+      compareRGridLocks: {}
+    }
   };
 
   // 统一调整所有曲线线宽：在“原来的 1/3”基础上整体放大 1.5 倍 => 1/2
@@ -34,6 +39,93 @@
         ds.borderWidth = ds.borderWidth * LINE_WIDTH_SCALE;
       }
     }
+  }
+
+  function isRollingEnabled() {
+    return !!(window.ElectronCloud && window.ElectronCloud.state && window.ElectronCloud.state.rollingMode && window.ElectronCloud.state.rollingMode.enabled);
+  }
+
+  function syncRollingCache() {
+    const enabled = isRollingEnabled();
+    const cache = state.rollingCache;
+    if (cache.lastEnabled === null) {
+      cache.lastEnabled = enabled;
+      return enabled;
+    }
+    if (cache.lastEnabled && !enabled) {
+      cache.yAxisLocks = {};
+      cache.compareRGridLocks = {};
+    }
+    cache.lastEnabled = enabled;
+    return enabled;
+  }
+
+  function computeYRangeFromDatasets(datasets) {
+    let min = Infinity;
+    let max = -Infinity;
+    if (!Array.isArray(datasets)) return null;
+
+    for (const ds of datasets) {
+      if (!ds || !Array.isArray(ds.data)) continue;
+      for (const point of ds.data) {
+        let y = null;
+        if (typeof point === 'number') {
+          y = point;
+        } else if (point && typeof point === 'object' && typeof point.y === 'number') {
+          y = point.y;
+        }
+        if (!Number.isFinite(y)) continue;
+        if (y < min) min = y;
+        if (y > max) max = y;
+      }
+    }
+
+    if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+    if (min === max) {
+      // 避免 min=max 导致 Chart.js 退化
+      const pad = (min === 0) ? 1 : Math.abs(min) * 0.05;
+      return { min: min - pad, max: max + pad };
+    }
+    const pad = (max - min) * 0.05;
+    return { min: min - pad, max: max + pad };
+  }
+
+  function applyRollingAnimationPolicy(chart) {
+    if (!chart || !chart.options) return;
+    const rolling = isRollingEnabled();
+    if (!chart.options.animation) chart.options.animation = {};
+    // 滚动模式：完全关闭动画，避免肉眼“硬刷新”
+    chart.options.animation.duration = rolling ? 0 : (chart.options.animation.duration ?? 300);
+  }
+
+  function applyRollingYAxisLock(chart, datasets, lockKey, typeHint) {
+    if (!chart || !chart.options || !chart.options.scales || !chart.options.scales.y) return;
+
+    const rolling = isRollingEnabled();
+    if (!rolling) return;
+
+    // 角向/φ 已有固定 0-1，不再二次锁定
+    if (typeHint === 'angular' || typeHint === 'phi' || typeHint === 'azimuthal') return;
+
+    const cache = state.rollingCache;
+    const existing = cache.yAxisLocks[lockKey];
+    const yRange = existing || computeYRangeFromDatasets(datasets);
+    if (!yRange) return;
+
+    // 概率类图：强制从 0 起，防止 x 轴（基线）被“抬升”
+    // 仅锁 y.max，y.min 固定为 0
+    const isProbabilityLike = (typeHint === 'radial');
+    if (isProbabilityLike) {
+      const locked = existing || { min: 0, max: yRange.max };
+      if (!existing) cache.yAxisLocks[lockKey] = locked;
+      chart.options.scales.y.min = 0;
+      chart.options.scales.y.max = locked.max;
+      return;
+    }
+
+    if (!existing) cache.yAxisLocks[lockKey] = yRange;
+    chart.options.scales.y.min = yRange.min;
+    chart.options.scales.y.max = yRange.max;
   }
 
   function init() {
@@ -250,6 +342,7 @@
     // 强制设置canvas背景为透明
     ctx.style.backgroundColor = 'transparent';
 
+    const rolling = isRollingEnabled();
     state.chart = new Chart(ctx, {
       type: 'bar',
       data: { labels: [], datasets: [] },
@@ -258,7 +351,7 @@
         maintainAspectRatio: false,
         backgroundColor: 'transparent',
         animation: {
-          duration: 300, // 添加平滑动画
+          duration: rolling ? 0 : 300,
           easing: 'easeOutQuart'
         },
         interaction: {
@@ -347,10 +440,7 @@
       if (waveDatasetIndex !== -1) {
         state.waveHidden = !state.chart.isDatasetVisible(waveDatasetIndex);
       }
-      const zeffDatasetIndex = state.chart.data.datasets.findIndex(ds => ds.label === '有效核电荷 Z_eff');
-      if (zeffDatasetIndex !== -1) {
-        state.zeffHidden = !state.chart.isDatasetVisible(zeffDatasetIndex);
-      }
+
     }
 
     // 若当前是极坐标图，需销毁后重新创建柱状图
@@ -418,7 +508,14 @@
           color: '#d0d0d0',
           font: { size: 12, weight: '500' }
         };
+
+        // 【关键修复】从角向/φ图切换过来时，清除固定的 0-1 轴范围
+        delete chart.options.scales.y.min;
+        delete chart.options.scales.y.max;
       }
+
+      // 【关键修复】清除能量图残留的 y2 轴
+      delete chart.options.scales.y2;
     }
 
     // 优化x轴显示
@@ -426,6 +523,9 @@
       chart.options.scales.x.ticks.autoSkip = true;
       chart.options.scales.x.ticks.maxTicksLimit = 15;
     }
+
+    applyRollingAnimationPolicy(chart);
+    applyRollingYAxisLock(chart, datasets, 'bar:radial', 'radial');
 
     try {
       chart.update('none');
@@ -436,6 +536,8 @@
       const newChart = ensureChart();
       if (newChart) {
         newChart.data.datasets = datasets;
+        applyRollingAnimationPolicy(newChart);
+        applyRollingYAxisLock(newChart, datasets, 'bar:radial', 'radial');
         newChart.update('none');
       }
     }
@@ -500,7 +602,7 @@
     if (!chart.options.elements) chart.options.elements = {};
     chart.options.elements.point = { radius: 0, hoverRadius: 0 };
 
-    // 添加坐标轴标题
+    // 添加坐标轴标题和范围限制
     if (chart.options.scales) {
       if (chart.options.scales.x) {
         chart.options.scales.x.title = {
@@ -521,9 +623,17 @@
           color: '#d0d0d0',
           font: { size: 12, weight: '500' }
         };
+        // 【新增】固定Y轴范围 0-1
+        chart.options.scales.y.min = 0;
+        chart.options.scales.y.max = 1;
       }
+
+      // 角向图不需要 y2，防止从能量图残留
+      delete chart.options.scales.y2;
     }
 
+    applyRollingAnimationPolicy(chart);
+    // angular/phi 固定 y=0..1；无需 y 轴锁定
     chart.update('none'); // 使用无动画更新，避免曲线跳动
   }
 
@@ -582,11 +692,16 @@
     applyThinLineStyle(datasets);
     chart.data.datasets = datasets;
 
+    // 【关键修复】φ角向图也不需要 y2，防止从能量图残留
+    if (chart.options.scales) {
+      delete chart.options.scales.y2;
+    }
+
     // 强制设置全局元素配置，确保线条不显示点
     if (!chart.options.elements) chart.options.elements = {};
     chart.options.elements.point = { radius: 0, hoverRadius: 0 };
 
-    // 添加坐标轴标题
+    // 添加坐标轴标题和范围限制
     if (chart.options.scales) {
       if (chart.options.scales.x) {
         chart.options.scales.x.title = {
@@ -607,9 +722,14 @@
           color: '#d0d0d0',
           font: { size: 12, weight: '500' }
         };
+        // 【新增】固定Y轴范围 0-1
+        chart.options.scales.y.min = 0;
+        chart.options.scales.y.max = 1;
       }
     }
 
+    applyRollingAnimationPolicy(chart);
+    // angular/phi 固定 y=0..1；无需 y 轴锁定
     chart.update('none'); // 使用无动画更新，避免曲线跳动
   }
 
@@ -661,23 +781,7 @@
       });
     }
 
-    // Z_eff 曲线 - 绿色，置于最上层
-    if (theory && theory.zeff && theory.zeff.length) {
-      datasets.push({
-        type: 'line',
-        label: '有效核电荷 Z_eff',
-        data: theory.zeff.map((y, i) => ({ x: i, y })),
-        borderColor: 'rgba(0, 220, 0, 0.9)',
-        backgroundColor: 'transparent',
-        pointRadius: 0,
-        borderWidth: 2.5,
-        yAxisID: 'y2',
-        borderDash: [2, 2],
-        tension: 0.2,
-        order: 0,
-        hidden: state.zeffHidden || false
-      });
-    }
+
 
     applyThinLineStyle(datasets);
     chart.data.labels = labels;
@@ -703,29 +807,11 @@
           font: { size: 12, weight: '500' }
         };
       }
-      // Z_eff 坐标轴 - 右侧绿色
-      if (theory && theory.zeff && theory.zeff.length) {
-        const maxZ = Math.ceil(Math.max(...theory.zeff, 1));
-        chart.options.scales.y2 = {
-          position: 'right',
-          grid: { drawOnChartArea: false },
-          min: 0,
-          max: maxZ > 1 ? maxZ : 2,
-          ticks: {
-            display: true,
-            color: 'rgba(0, 220, 0, 0.9)',
-            font: { size: 9 }
-          },
-          title: {
-            display: true,
-            text: 'Z_eff',
-            color: 'rgba(0, 220, 0, 0.9)',
-            font: { size: 10 }
-          }
-        };
-      }
+
     }
 
+    applyRollingAnimationPolicy(chart);
+    applyRollingYAxisLock(chart, datasets, 'bar:potential', 'potential');
     chart.update('none');
   }
 
@@ -847,11 +933,13 @@
       }
     }
 
+    applyRollingAnimationPolicy(chart);
+    applyRollingYAxisLock(chart, datasets, 'bar:dEdr', 'dEdr');
     chart.update('none');
   }
 
   // 渲染能量期望密度图 ε·P(r) - 样式照抄径向分布
-  function renderChartEnergyDensity(hist, theory) {
+  function renderChartEnergyDensity(hist, theory, options = {}) {
     const ctx = document.getElementById('probability-chart');
     if (!ctx || !window.Chart) return;
 
@@ -911,6 +999,10 @@
     applyThinLineStyle(datasets);
     chart.data.datasets = datasets;
 
+    const lockKey = (options && options.lockKey) ? options.lockKey : 'bar:energyDensity';
+    const typeHint = (options && options.typeHint) ? options.typeHint : 'energyDensity';
+    const yTitleText = (options && options.yTitle) ? options.yTitle : '能量密度 ε·P(r) (Hartree/a₀)';
+
     // 坐标轴配置
     if (chart.options.scales) {
       if (chart.options.scales.x) {
@@ -924,18 +1016,241 @@
       if (chart.options.scales.y) {
         chart.options.scales.y.title = {
           display: true,
-          text: '能量密度 ε·P(r) (Hartree/a₀)',
+          text: yTitleText,
           color: '#d0d0d0',
           font: { size: 12, weight: '500' }
         };
+
+        // 【关键修复】从角向/φ图切换过来时，清除固定的 0-1 轴范围
+        delete chart.options.scales.y.min;
+        delete chart.options.scales.y.max;
       }
+
+      // 能量密度图不需要 y2
+      delete chart.options.scales.y2;
     }
 
+    applyRollingAnimationPolicy(chart);
+    applyRollingYAxisLock(chart, datasets, lockKey, typeHint);
     chart.update('none');
   }
 
+  // 渲染能量期望密度图（gamma变换）：数据与 ε·P(r) 完全同源，只在绘图阶段对 y 做 gamma=0.1
+  function renderChartEnergyDensityGamma(hist, theory, gamma = 0.1) {
+    const safeGamma = (typeof gamma === 'number' && Number.isFinite(gamma) && gamma > 0) ? gamma : 0.1;
+    const gammaCorrect = (y) => {
+      if (typeof y !== 'number' || !Number.isFinite(y)) return 0;
+      if (y === 0) return 0;
+      const s = y < 0 ? -1 : 1;
+      const a = Math.abs(y);
+      // 幂次 gamma：保符号，仅对幅值做变换
+      const v = Math.pow(a, safeGamma);
+      return Number.isFinite(v) ? (s * v) : 0;
+    };
+
+    const transformedHist = {
+      ...hist,
+      counts: Array.isArray(hist?.counts) ? hist.counts.map(gammaCorrect) : Array.from(hist?.counts || [], gammaCorrect)
+    };
+    const transformedTheory = {
+      ...theory,
+      values: Array.isArray(theory?.values) ? theory.values.map(gammaCorrect) : Array.from(theory?.values || [], gammaCorrect)
+    };
+
+    renderChartEnergyDensity(transformedHist, transformedTheory, {
+      lockKey: 'bar:energyDensityGamma',
+      typeHint: 'energyDensityGamma',
+      yTitle: '能量密度 ε·P(r)（γ=0.1）'
+    });
+  }
+
   // 渲染能量期望累计图 E(R) = ∫ε·P(r)dr - 样式照抄径向分布
-  function renderChartEnergyCumulative(hist, theory) {
+  // 诊断：累计能量曲线出现“大阶跃/长平台”时，判断是否属于“理论上本就期望命中极少（空 bin 合理）”，
+  // 还是“理论期望命中数足够大但采样为 0（疑似采样/截断/链路错误）”。
+  // 注意：该诊断必须基于未做 gamma 的累计能量 E(R)；gamma 后的 E(R)^γ 不再与概率质量线性对应。
+  function diagEnergyCumulativeSummary(args) {
+    try {
+      const tag = args && args.tag;
+      const lockKeyForDiag = args && args.lockKeyForDiag;
+      const logPrefix = (args && args.logPrefix) ? String(args.logPrefix) : '';
+      const cum = Array.from((args && args.cum) || []);
+      const theoryCum = Array.from((args && args.theoryCum) || []);
+      const edges = (args && args.edges) || [];
+      const sampleCount = (args && Number.isFinite(args.sampleCount)) ? args.sampleCount : (
+        (window.ElectronCloud && window.ElectronCloud.state && Array.isArray(window.ElectronCloud.state.radialSamples))
+          ? window.ElectronCloud.state.radialSamples.length
+          : 0
+      );
+
+      if (cum.length < 2) return null;
+      const n = theoryCum.length ? Math.min(cum.length, theoryCum.length) : cum.length;
+      if (n < 2) return null;
+
+      if (!state._energyCumulativeDiagSeen) state._energyCumulativeDiagSeen = {};
+      const seenKey = `${lockKeyForDiag || ''}|${tag || ''}|${n}`;
+      if (state._energyCumulativeDiagSeen[seenKey]) return null;
+      state._energyCumulativeDiagSeen[seenKey] = true;
+
+      const cumEnd = cum[n - 1];
+      const scale = Math.max(1e-12, Math.abs(cumEnd));
+      const tolFlat = Math.max(1e-14, scale * 1e-8);
+
+      let flatBins = 0;
+      let longestFlat = 0;
+      let currentFlat = 0;
+      let longestFlatEnd = -1;
+
+      // theoryCum[end] 应该趋近 ε（符号可能为负）
+      const epsilonRef = (theoryCum.length && Number.isFinite(theoryCum[n - 1]) && Math.abs(theoryCum[n - 1]) > 1e-14)
+        ? theoryCum[n - 1]
+        : null;
+
+      // 采样侧的 ε 参考（用于把采样累计增量换算回概率质量）
+      const epsilonObsRef = (Number.isFinite(cum[n - 1]) && Math.abs(cum[n - 1]) > 1e-14)
+        ? cum[n - 1]
+        : null;
+
+      let suspiciousExpectedBins = 0;
+      let longestSuspiciousExpected = 0;
+      let currentSuspiciousExpected = 0;
+      let longestSuspiciousExpectedEnd = -1;
+      let maxExpectedCount = 0;
+
+      for (let i = 1; i < n; i++) {
+        const d = cum[i] - cum[i - 1];
+        const isFlat = Math.abs(d) <= tolFlat;
+        if (isFlat) {
+          flatBins++;
+          currentFlat++;
+          if (currentFlat > longestFlat) {
+            longestFlat = currentFlat;
+            longestFlatEnd = i;
+          }
+        } else {
+          currentFlat = 0;
+        }
+
+        if (theoryCum.length && epsilonRef !== null && Number.isFinite(sampleCount) && sampleCount > 0) {
+          const dt = theoryCum[i] - theoryCum[i - 1];
+          // probMass = |ΔE / ε|
+          const probMass = Math.abs(dt / epsilonRef);
+          const expected = sampleCount * probMass;
+          if (Number.isFinite(expected)) {
+            if (expected > maxExpectedCount) maxExpectedCount = expected;
+            const isSuspiciousExpected = isFlat && expected >= 3;
+            if (isSuspiciousExpected) {
+              suspiciousExpectedBins++;
+              currentSuspiciousExpected++;
+              if (currentSuspiciousExpected > longestSuspiciousExpected) {
+                longestSuspiciousExpected = currentSuspiciousExpected;
+                longestSuspiciousExpectedEnd = i;
+              }
+            } else {
+              currentSuspiciousExpected = 0;
+            }
+          }
+        }
+      }
+
+      // 近核专项统计：用户关心的“近核空缺”主要发生在 r 很小的若干 bin。
+      // 这里不武断判错，只给出：在 r<=nearCoreMaxR 区间内，理论期望命中数/采样估计命中数与“高期望但实际为 0”的最坏情况。
+      const nearCoreMaxR = (args && Number.isFinite(args.nearCoreMaxR)) ? args.nearCoreMaxR : 2.0;
+      let nearCoreBins = 0;
+      let nearCoreExpectedTotal = 0;
+      let nearCoreExpectedMax = 0;
+      let nearCoreObsApproxTotal = 0;
+      let nearCoreZeroBinsExpectedGE0_5 = 0;
+      let nearCoreWorstZeroExpected = 0;
+      let nearCoreWorstZeroR = null;
+
+      if (edges && edges.length >= n + 1 && epsilonRef !== null && Number.isFinite(sampleCount) && sampleCount > 0) {
+        for (let i = 1; i < n; i++) {
+          const rRight = edges[i + 0];
+          if (!Number.isFinite(rRight) || rRight > nearCoreMaxR) break;
+          nearCoreBins++;
+
+          const dt = theoryCum.length ? (theoryCum[i] - theoryCum[i - 1]) : 0;
+          const probMassTh = Math.abs(dt / epsilonRef);
+          const expected = sampleCount * probMassTh;
+          if (Number.isFinite(expected)) {
+            nearCoreExpectedTotal += expected;
+            if (expected > nearCoreExpectedMax) nearCoreExpectedMax = expected;
+          }
+
+          let obsApprox = null;
+          if (epsilonObsRef !== null) {
+            const dObs = cum[i] - cum[i - 1];
+            const probMassObs = Math.abs(dObs / epsilonObsRef);
+            obsApprox = sampleCount * probMassObs;
+            if (Number.isFinite(obsApprox)) nearCoreObsApproxTotal += obsApprox;
+
+            const isObsZero = Math.abs(dObs) <= tolFlat;
+            if (isObsZero && Number.isFinite(expected) && expected >= 0.5) {
+              nearCoreZeroBinsExpectedGE0_5++;
+              if (expected > nearCoreWorstZeroExpected) {
+                nearCoreWorstZeroExpected = expected;
+                nearCoreWorstZeroR = [edges[i - 1], edges[i]];
+              }
+            }
+          }
+        }
+      }
+
+      const flatStart = (longestFlatEnd >= 0) ? (longestFlatEnd - longestFlat + 1) : -1;
+      const suspiciousExpectedStart = (longestSuspiciousExpectedEnd >= 0)
+        ? (longestSuspiciousExpectedEnd - longestSuspiciousExpected + 1)
+        : -1;
+      const rRange = (start, end) => {
+        if (!edges || edges.length < end + 2 || start < 0 || end < 0) return null;
+        return [edges[start], edges[end + 1]];
+      };
+
+      const payload = {
+        tag,
+        bins: n,
+        cumEnd,
+        sampleCount,
+        flatBins,
+        flatRatio: Number.isFinite(flatBins / (n - 1)) ? Number((flatBins / (n - 1)).toFixed(3)) : null,
+        longestFlat,
+        longestFlatR: rRange(flatStart, longestFlatEnd),
+        suspiciousExpectedBins,
+        longestSuspiciousExpected,
+        longestSuspiciousExpectedR: rRange(suspiciousExpectedStart, longestSuspiciousExpectedEnd),
+        maxExpectedCount: Number.isFinite(maxExpectedCount) ? Number(maxExpectedCount.toFixed(2)) : null,
+
+        nearCoreMaxR,
+        nearCoreBins,
+        nearCoreExpectedTotal: Number.isFinite(nearCoreExpectedTotal) ? Number(nearCoreExpectedTotal.toFixed(3)) : null,
+        nearCoreExpectedMax: Number.isFinite(nearCoreExpectedMax) ? Number(nearCoreExpectedMax.toFixed(3)) : null,
+        nearCoreObsApproxTotal: Number.isFinite(nearCoreObsApproxTotal) ? Number(nearCoreObsApproxTotal.toFixed(3)) : null,
+        nearCoreZeroBinsExpectedGE0_5,
+        nearCoreWorstZeroExpected: Number.isFinite(nearCoreWorstZeroExpected) ? Number(nearCoreWorstZeroExpected.toFixed(3)) : null,
+        nearCoreWorstZeroR
+      };
+
+      window.__EC_LAST_ENERGY_CUMULATIVE_DIAG = payload;
+
+      const json = (() => {
+        try { return JSON.stringify(payload); } catch (e) { return null; }
+      })();
+
+      const suffix = logPrefix ? ` ${logPrefix}` : '';
+      if (suspiciousExpectedBins > 0) {
+        console.warn(`[EnergyCumulativeDiag${suffix}]`, payload);
+        if (json) console.warn(`[EnergyCumulativeDiag${suffix} JSON]`, json);
+      } else {
+        console.log(`[EnergyCumulativeDiag${suffix}]`, payload);
+        if (json) console.log(`[EnergyCumulativeDiag${suffix} JSON]`, json);
+      }
+
+      return payload;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function renderChartEnergyCumulative(hist, theory, options = {}) {
     const ctx = document.getElementById('probability-chart');
     if (!ctx || !window.Chart) return;
 
@@ -960,10 +1275,27 @@
     const maxValue = Math.max(...centers);
     const decimalPlaces = maxValue > 100 ? 1 : (maxValue > 10 ? 2 : 3);
 
+    const lockKey = (options && options.lockKey) ? options.lockKey : 'bar:energyCumulative';
+    const typeHint = (options && options.typeHint) ? options.typeHint : 'energyCumulative';
+    const yTitleText = (options && options.yTitle) ? options.yTitle : '累计能量 E(R) (Hartree)';
+    const samplingLabel = (options && options.samplingLabel) ? options.samplingLabel : '能量期望累计 E(R) (采样)';
+    const theoryLabel = (options && options.theoryLabel) ? options.theoryLabel : '理论曲线 E(R) → ε';
+
+    // 仅对累计能量图做诊断（可通过 options.skipDiag 禁用）
+    if (!(options && options.skipDiag)) {
+      diagEnergyCumulativeSummary({
+        tag: typeHint,
+        lockKeyForDiag: lockKey,
+        cum: Array.from(hist?.counts || []),
+        edges: hist?.edges || [],
+        theoryCum: Array.from(theory?.values || [])
+      });
+    }
+
     chart.data.labels = centers.map(v => v.toFixed(decimalPlaces));
     const datasets = [
       {
-        label: '能量期望累计 E(R) (采样)',
+        label: samplingLabel,
         data: Array.from(hist.counts),
         backgroundColor: 'rgba(255,255,255,0.7)',
         borderColor: 'rgba(255,255,255,0.95)',
@@ -980,7 +1312,7 @@
     if (theory && theory.values && theory.values.length) {
       datasets.push({
         type: 'line',
-        label: '理论曲线 E(R) → ε',
+        label: theoryLabel,
         data: theory.values.map((y, i) => ({ x: i, y })),
         borderColor: 'rgba(255, 255, 255, 0.95)',
         backgroundColor: 'transparent',
@@ -1008,14 +1340,69 @@
       if (chart.options.scales.y) {
         chart.options.scales.y.title = {
           display: true,
-          text: '累计能量 E(R) (Hartree)',
+          text: yTitleText,
           color: '#d0d0d0',
           font: { size: 12, weight: '500' }
         };
+
+        // 【关键修复】从角向/φ图切换过来时，清除固定的 0-1 轴范围
+        delete chart.options.scales.y.min;
+        delete chart.options.scales.y.max;
       }
+
+      // 累计能量图不需要 y2
+      delete chart.options.scales.y2;
     }
 
+    applyRollingAnimationPolicy(chart);
+    applyRollingYAxisLock(chart, datasets, lockKey, typeHint);
     chart.update('none');
+  }
+
+  // 渲染累计能量 E(R)（gamma变换）：数据与 E(R) 完全同源，只在绘图阶段对 y 做 gamma=0.1
+  function renderChartEnergyCumulativeGamma(hist, theory, gamma = 0.1) {
+    const safeGamma = (typeof gamma === 'number' && Number.isFinite(gamma) && gamma > 0) ? gamma : 0.1;
+    const gammaCorrect = (y) => {
+      if (typeof y !== 'number' || !Number.isFinite(y)) return 0;
+      if (y === 0) return 0;
+      const s = y < 0 ? -1 : 1;
+      const a = Math.abs(y);
+      const v = Math.pow(a, safeGamma);
+      return Number.isFinite(v) ? (s * v) : 0;
+    };
+
+    // 诊断：gamma 图表必须基于 preGamma 的累计 E(R) 来做，否则“理论期望命中数”不再成立
+    // 为了不污染 UI，这里仅打印诊断并保存全局变量。
+    try {
+      const payload = diagEnergyCumulativeSummary({
+        tag: 'energyCumulativeGamma-preGamma',
+        lockKeyForDiag: 'bar:energyCumulativeGamma:preGamma',
+        logPrefix: 'preGamma',
+        cum: Array.from(hist?.counts || []),
+        edges: hist?.edges || [],
+        theoryCum: Array.from(theory?.values || [])
+      });
+      if (payload) window.__EC_LAST_ENERGY_CUMULATIVE_PRE_GAMMA_DIAG = payload;
+    } catch (e) { }
+
+    const transformedHist = {
+      ...hist,
+      counts: Array.isArray(hist?.counts) ? hist.counts.map(gammaCorrect) : Array.from(hist?.counts || [], gammaCorrect)
+    };
+    const transformedTheory = {
+      ...theory,
+      values: Array.isArray(theory?.values) ? theory.values.map(gammaCorrect) : Array.from(theory?.values || [], gammaCorrect)
+    };
+
+    renderChartEnergyCumulative(transformedHist, transformedTheory, {
+      lockKey: 'bar:energyCumulativeGamma',
+      typeHint: 'energyCumulativeGamma',
+      yTitle: '累计能量 E(R)（γ=0.1）',
+      samplingLabel: '累计能量 E(R)（γ=0.1，采样）',
+      theoryLabel: '理论曲线 E(R)（γ=0.1）',
+      // 禁用对 gamma 后曲线的诊断（gamma 后不再与概率质量线性对应）
+      skipDiag: true
+    });
   }
 
   // 保留旧函数名以兼容
@@ -1154,6 +1541,8 @@
       }
     }
 
+    const rollingEnabled = syncRollingCache();
+
     // 如果当前不是折线图，销毁后重新创建
     if (state.chart && state.chart.config && state.chart.config.type !== 'line') {
       console.log('销毁旧图表，创建折线图'); // 调试信息
@@ -1174,7 +1563,7 @@
           maintainAspectRatio: false,
           backgroundColor: 'transparent',
           animation: {
-            duration: 300,
+            duration: rollingEnabled ? 0 : 300,
             easing: 'easeOutQuart'
           },
           interaction: {
@@ -1209,11 +1598,14 @@
           scales: {
             x: {
               type: 'linear',
+              min: (type === 'angular') ? 0 : ((type === 'phi' || type === 'azimuthal') ? 0 : undefined),
+              max: (type === 'angular') ? Math.PI : ((type === 'phi' || type === 'azimuthal') ? (2 * Math.PI) : undefined),
               title: {
                 display: true,
-                text: (type === 'radial' || type === 'energyDensity' || type === 'energyCumulative') ? '径向距离 r (a₀)' :
-                  (type === 'angular' || type === 'phi') ? '角度 (弧度)' :
-                    (type === 'potential' || type === 'dEdr' || type === 'localEnergy') ? '距离 r (a₀)' : '角度 (弧度)',
+                text: (type === 'radial' || type === 'energyDensity' || type === 'energyDensityGamma' || type === 'energyCumulative' || type === 'energyCumulativeGamma') ? '径向距离 r (a₀)' :
+                  (type === 'angular') ? '角度 θ (弧度)' :
+                    (type === 'phi' || type === 'azimuthal') ? '角度 φ (弧度)' :
+                      (type === 'potential' || type === 'dEdr' || type === 'localEnergy') ? '距离 r (a₀)' : '角度 (弧度)',
                 color: '#d0d0d0',
                 font: { size: 12, weight: '500' }
               },
@@ -1237,11 +1629,16 @@
                   type === 'dEdr' ? '势能密度 dV/dr (Hartree/a₀)' :
                     type === 'localEnergy' ? '径向能量密度 (Hartree/a₀)' :
                       type === 'energyDensity' ? '能量密度 ε·P(r) (Hartree/a₀)' :
+                        type === 'energyDensityGamma' ? '能量密度 ε·P(r)（γ=0.1）' :
                         type === 'energyCumulative' ? '累计能量 E(R) (Hartree)' :
+                        type === 'energyCumulativeGamma' ? '累计能量 E(R)（γ=0.1）' :
                           '概率密度',
                 color: '#d0d0d0',
                 font: { size: 12, weight: '500' }
               },
+              // 【新增】角向分布图固定Y轴范围 0-1
+              min: (type === 'angular' || type === 'phi' || type === 'azimuthal') ? 0 : undefined,
+              max: (type === 'angular' || type === 'phi' || type === 'azimuthal') ? 1 : undefined,
               ticks: {
                 color: '#d0d0d0',
                 font: { size: 10 }
@@ -1272,10 +1669,31 @@
         if (state.chart.options.scales.x && state.chart.options.scales.x.title) {
           if (type === 'potentialLog' || type === 'dEdrLog') {
             // 已移除 log-log 图表类型
-          } else if (type === 'radial' || type === 'potential' || type === 'dEdr' || type === 'localEnergy') {
+          } else if (
+            type === 'radial' ||
+            type === 'potential' ||
+            type === 'dEdr' ||
+            type === 'localEnergy' ||
+            type === 'energyDensity' ||
+            type === 'energyDensityGamma' ||
+            type === 'energyCumulative' ||
+            type === 'energyCumulativeGamma'
+          ) {
             state.chart.options.scales.x.title.text = '距离 r (a₀)';
           } else {
             state.chart.options.scales.x.title.text = '角度 (弧度)';
+          }
+
+          // 【关键修复】钉死角向图 x 轴范围
+          if (type === 'angular') {
+            state.chart.options.scales.x.min = 0;
+            state.chart.options.scales.x.max = Math.PI;
+          } else if (type === 'phi' || type === 'azimuthal') {
+            state.chart.options.scales.x.min = 0;
+            state.chart.options.scales.x.max = 2 * Math.PI;
+          } else {
+            delete state.chart.options.scales.x.min;
+            delete state.chart.options.scales.x.max;
           }
         }
         if (state.chart.options.scales.y && state.chart.options.scales.y.title) {
@@ -1285,8 +1703,26 @@
             state.chart.options.scales.y.title.text = '势能密度 dV/dr (Hartree/a₀)';
           } else if (type === 'localEnergy') {
             state.chart.options.scales.y.title.text = '径向能量密度 (Hartree/a₀)';
+          } else if (type === 'energyDensity') {
+            state.chart.options.scales.y.title.text = '能量密度 ε·P(r) (Hartree/a₀)';
+          } else if (type === 'energyDensityGamma') {
+            state.chart.options.scales.y.title.text = '能量密度 ε·P(r)（γ=0.1）';
+          } else if (type === 'energyCumulative') {
+            state.chart.options.scales.y.title.text = '累计能量 E(R) (Hartree)';
+          } else if (type === 'energyCumulativeGamma') {
+            state.chart.options.scales.y.title.text = '累计能量 E(R)（γ=0.1）';
           } else {
             state.chart.options.scales.y.title.text = '概率密度';
+          }
+
+          // 【关键修复】钉死角向图 y 轴范围
+          if (type === 'angular' || type === 'phi' || type === 'azimuthal') {
+            state.chart.options.scales.y.min = 0;
+            state.chart.options.scales.y.max = 1;
+          } else {
+            // 非角向：通常让其自适应；但滚动模式会在后续统一锁定 y 轴
+            delete state.chart.options.scales.y.min;
+            delete state.chart.options.scales.y.max;
           }
         }
       }
@@ -1313,7 +1749,16 @@
     for (const [orbitalKey, samples] of Object.entries(orbitalDataMap || {})) {
       if (!samples || samples.length === 0) continue;
       totalSamples += samples.length;
-      if (type === 'radial' || type === 'potential' || type === 'dEdr' || type === 'localEnergy' || type === 'energyDensity' || type === 'energyCumulative') {
+      if (
+        type === 'radial' ||
+        type === 'potential' ||
+        type === 'dEdr' ||
+        type === 'localEnergy' ||
+        type === 'energyDensity' ||
+        type === 'energyDensityGamma' ||
+        type === 'energyCumulative' ||
+        type === 'energyCumulativeGamma'
+      ) {
         // 【性能修复】使用循环替代Math.max(...array)，避免大数组栈溢出
         for (let i = 0; i < samples.length; i++) {
           if (samples[i].r > maxDistance) {
@@ -1331,7 +1776,7 @@
 
     // 【关键修复】若尚未采样（maxDistance=0），仍要在比照模式显示理论曲线
     // 使用 estimateOrbitalRadius95 为每个 slot 估算一个可用的 r 范围
-    if ((type === 'radial' || type === 'potential' || type === 'dEdr' || type === 'localEnergy' || type === 'energyDensity' || type === 'energyCumulative') && maxDistance <= 0) {
+    if ((type === 'radial' || type === 'potential' || type === 'dEdr' || type === 'localEnergy' || type === 'energyDensity' || type === 'energyDensityGamma' || type === 'energyCumulative' || type === 'energyCumulativeGamma') && maxDistance <= 0) {
       const estimateFn = window.Hydrogen?.estimateOrbitalRadius95;
       if (estimateFn && activeSlots && activeSlots.length > 0) {
         for (const slot of activeSlots) {
@@ -1348,28 +1793,47 @@
       }
     }
 
+    // 滚动模式：锁定径向网格（bins/rmax），避免每次滚动导致横轴网格跳变
+    let lockedRGrid = null;
+    if (type === 'radial' || type === 'potential' || type === 'dEdr' || type === 'localEnergy' || type === 'energyDensity' || type === 'energyDensityGamma' || type === 'energyCumulative' || type === 'energyCumulativeGamma') {
+      const dynamicRmaxCandidate = Math.max(1, maxDistance * 1.08);
+      const baseBins = 240;
+      const sampleDensity = totalSamples / Math.max(1, dynamicRmaxCandidate);
+      const adaptiveBinsCandidate = Math.min(400, Math.max(baseBins, Math.floor(sampleDensity * 0.5)));
+
+      if (rollingEnabled) {
+        lockedRGrid = state.rollingCache.compareRGridLocks[type];
+        if (!lockedRGrid) {
+          lockedRGrid = { rmax: dynamicRmaxCandidate, bins: adaptiveBinsCandidate };
+          state.rollingCache.compareRGridLocks[type] = lockedRGrid;
+        }
+      } else {
+        lockedRGrid = { rmax: dynamicRmaxCandidate, bins: adaptiveBinsCandidate };
+      }
+    }
+
     // 按照选择顺序处理轨道数据
     for (let colorIndex = 0; colorIndex < activeSlots.length; colorIndex++) {
       const slotConfig = activeSlots[colorIndex];
       const atomType = slotConfig.atom || 'H';
       // 构建与sampling.js中相同的键
-      const sampleKey = `${slotConfig.atom}_${slotConfig.orbital}_slot${slotConfig.slotIndex}`;
+      const sampleKey = `${atomType}_${slotConfig.orbital}_slot${slotConfig.slotIndex}`;
       const samples = orbitalDataMap[sampleKey];
 
       const hasSamples = !!(samples && samples.length > 0);
 
-      const color = compareColors[colorIndex % compareColors.length];
+      // 【关键修复】颜色必须绑定到 UI slotIndex，而不是 activeSlots 的数组位置
+      const slotColorIndex = Number.isInteger(slotConfig.slotIndex) ? slotConfig.slotIndex : colorIndex;
+      const color = compareColors[(slotColorIndex % compareColors.length + compareColors.length) % compareColors.length];
       // 【关键修复】标签中显示原子类型
       const displayName = `${slotConfig.atom} ${orbitalDisplayNameMap[slotConfig.orbital] || slotConfig.orbital}`;
       let hist, centers;
       let potentialValues; // 存储势能值
 
       if (type === 'radial') {
-        // 使用与普通模式相同的参数
-        const dynamicRmax = Math.max(1, maxDistance * 1.08);
-        const baseBins = 240;
-        const sampleDensity = totalSamples / Math.max(1, dynamicRmax);
-        const adaptiveBins = Math.min(400, Math.max(baseBins, Math.floor(sampleDensity * 0.5)));
+        // 使用与普通模式相同的参数（滚动模式下固定 bins/rmax）
+        const dynamicRmax = lockedRGrid ? lockedRGrid.rmax : Math.max(1, maxDistance * 1.08);
+        const adaptiveBins = lockedRGrid ? lockedRGrid.bins : 240;
 
         if (hasSamples) {
           // 提取径向数据
@@ -1391,27 +1855,34 @@
       } else if (type === 'angular') {
         // θ角向数据
         const angularBins = 180;
+        // 强制使用固定范围 [0, π]
+        const edges = new Array(angularBins + 1);
+        const counts = new Array(angularBins).fill(0);
+        for (let i = 0; i <= angularBins; i++) edges[i] = (Math.PI * i) / angularBins;
+
         if (hasSamples) {
           const angularData = samples.map(s => s.theta);
-          hist = window.Hydrogen.histogramThetaFromSamples(angularData, angularBins, true);
-        } else {
-          const edges = new Array(angularBins + 1);
-          const counts = new Array(angularBins).fill(0);
-          for (let i = 0; i <= angularBins; i++) edges[i] = (Math.PI * i) / angularBins;
-          hist = { edges, counts };
+          // 手动统计
+          const binWidth = Math.PI / angularBins;
+          for (let val of angularData) {
+            const idx = Math.floor(val / Math.PI * angularBins);
+            if (idx >= 0 && idx < angularBins) counts[idx]++;
+          }
+          // 归一化
+          const total = angularData.length || 1;
+          for (let i = 0; i < angularBins; i++) counts[i] /= (total * binWidth);
         }
+        hist = { edges, counts };
 
         // 计算bin中心
         centers = new Array(angularBins);
         for (let i = 0; i < angularBins; i++) {
           centers[i] = 0.5 * (hist.edges[i] + hist.edges[i + 1]);
         }
-      } else if (type === 'potential' || type === 'dEdr' || type === 'localEnergy' || type === 'energyDensity' || type === 'energyCumulative') {
+      } else if (type === 'potential' || type === 'dEdr' || type === 'localEnergy' || type === 'energyDensity' || type === 'energyDensityGamma' || type === 'energyCumulative' || type === 'energyCumulativeGamma') {
         // 能量图：复用采样决定的 r 网格范围
-        const dynamicRmax = Math.max(1, maxDistance * 1.08);
-        const baseBins = 240;
-        const sampleDensity = totalSamples / Math.max(1, dynamicRmax);
-        const adaptiveBins = Math.min(400, Math.max(baseBins, Math.floor(sampleDensity * 0.5)));
+        const dynamicRmax = lockedRGrid ? lockedRGrid.rmax : Math.max(1, maxDistance * 1.08);
+        const adaptiveBins = lockedRGrid ? lockedRGrid.bins : 240;
 
         if (hasSamples) {
           const radialData = samples.map(s => s.r);
@@ -1430,15 +1901,28 @@
       } else {
         // φ角向数据 (azimuthal)
         const phiBins = 180;
+        // 强制使用固定范围 [0, 2π]（与单选模式 histogramPhiFromSamples 保持一致）
+        const edges = new Array(phiBins + 1);
+        const counts = new Array(phiBins).fill(0);
+        for (let i = 0; i <= phiBins; i++) edges[i] = (2 * Math.PI * i) / phiBins;
+
         if (hasSamples) {
           const phiData = samples.map(s => s.phi);
-          hist = window.Hydrogen.histogramPhiFromSamples(phiData, phiBins, true);
-        } else {
-          const edges = new Array(phiBins + 1);
-          const counts = new Array(phiBins).fill(0);
-          for (let i = 0; i <= phiBins; i++) edges[i] = -Math.PI + (2 * Math.PI * i) / phiBins;
-          hist = { edges, counts };
+          // 使用手动统计填充 counts，确保 range 一致
+          for (let val of phiData) {
+            // 归一化到 [0, 2π)
+            while (val < 0) val += 2 * Math.PI;
+            while (val >= 2 * Math.PI) val -= 2 * Math.PI;
+
+            const idx = Math.floor(val / (2 * Math.PI) * phiBins);
+            if (idx >= 0 && idx < phiBins) counts[idx]++;
+          }
+          // 归一化 density
+          const binWidth = 2 * Math.PI / phiBins;
+          const total = phiData.length || 1;
+          for (let i = 0; i < phiBins; i++) counts[i] /= (total * binWidth);
         }
+        hist = { edges, counts };
 
         // 计算bin中心
         centers = new Array(phiBins);
@@ -1454,7 +1938,7 @@
       if (hasSamples && type !== 'potential' && type !== 'dEdr' && type !== 'localEnergy') {
         let samplingData;
 
-        if (type === 'energyDensity' || type === 'energyCumulative') {
+        if (type === 'energyDensity' || type === 'energyDensityGamma' || type === 'energyCumulative' || type === 'energyCumulativeGamma') {
           // 能量图：采样数据 × ε
           const baseKey = (slotConfig.orbital || '').replace(/[xyz]/g, '').replace(/_.*/, '');
           const energies = window.SlaterBasis && window.SlaterBasis[atomType]
@@ -1463,10 +1947,23 @@
           const epsilon = (energies && energies[baseKey] !== undefined) ? energies[baseKey] : -0.5;
           const dr = (hist.edges[1] - hist.edges[0]) || 0.01;
 
+          const gammaCorrect = (y) => {
+            if (typeof y !== 'number' || !Number.isFinite(y)) return 0;
+            if (y === 0) return 0;
+            const s = y < 0 ? -1 : 1;
+            const v = Math.pow(Math.abs(y), 0.1);
+            return Number.isFinite(v) ? (s * v) : 0;
+          };
+
           if (type === 'energyDensity') {
             samplingData = centers.map((center, index) => ({
               x: center,
               y: hist.counts[index] * epsilon
+            }));
+          } else if (type === 'energyDensityGamma') {
+            samplingData = centers.map((center, index) => ({
+              x: center,
+              y: gammaCorrect(hist.counts[index] * epsilon)
             }));
           } else if (type === 'energyCumulative') {
             // energyCumulative: 累积求和
@@ -1475,10 +1972,29 @@
               cumSum += hist.counts[index] * epsilon * dr;
               return { x: center, y: cumSum };
             });
+          } else if (type === 'energyCumulativeGamma') {
+            // energyCumulativeGamma：与 energyCumulative 同源（先得到 E(R)，再对 y 做 gamma=0.1）
+            let cumSum = 0;
+            samplingData = centers.map((center, index) => {
+              cumSum += hist.counts[index] * epsilon * dr;
+              return { x: center, y: gammaCorrect(cumSum) };
+            });
           } else {
             // 默认 radial 或 fallback
             // 【严格修正】只有明确是 radial 时才按 radial 处理，避免 fallback 掩盖错误
             if (type === 'radial') {
+              samplingData = centers.map((center, index) => ({
+                x: center,
+                y: hist.counts[index]
+              }));
+            } else if (type === 'angular') {
+              // θ角向采样直方图
+              samplingData = centers.map((center, index) => ({
+                x: center,
+                y: hist.counts[index]
+              }));
+            } else if (type === 'phi' || type === 'azimuthal') {
+              // φ方位角采样直方图
               samplingData = centers.map((center, index) => ({
                 x: center,
                 y: hist.counts[index]
@@ -1489,8 +2005,18 @@
             }
           }
         } else {
-          // 普通概率分布图 (radial) - 这里的 else 应该只针对 radial
+          // 普通概率分布图 - 处理所有类型
           if (type === 'radial') {
+            samplingData = centers.map((center, index) => ({
+              x: center,
+              y: hist.counts[index]
+            }));
+          } else if (type === 'angular') {
+            samplingData = centers.map((center, index) => ({
+              x: center,
+              y: hist.counts[index]
+            }));
+          } else if (type === 'phi' || type === 'azimuthal') {
             samplingData = centers.map((center, index) => ({
               x: center,
               y: hist.counts[index]
@@ -1548,19 +2074,73 @@
             y: (res && res.dEdr && res.dEdr.length > i) ? res.dEdr[i] : 0
           }));
         } else if (type === 'energyDensity') {
-          // 能量密度理论曲线：使用 calculateCumulativeOrbitalEnergy 返回的 dEdr（即 ε·P(r)）
-          const res = window.Hydrogen.calculateCumulativeOrbitalEnergy(orbitalParams.n, orbitalParams.l, atomZ, atomType, centers);
-          theoryData = centers.map((r, i) => ({
-            x: r,
-            y: (res && res.dEdr && res.dEdr.length > i) ? res.dEdr[i] : 0
-          }));
+            // 能量密度理论曲线：与采样侧严格同定义：ε·P(r)
+            const baseKey = (slotConfig.orbital || '').replace(/[xyz]/g, '').replace(/_.*/, '');
+            const energies = window.SlaterBasis && window.SlaterBasis[atomType]
+              ? window.SlaterBasis[atomType].energies
+              : null;
+            const epsilon = (energies && energies[baseKey] !== undefined) ? energies[baseKey] : -0.5;
+            theoryData = centers.map(r => ({
+              x: r,
+              y: epsilon * window.Hydrogen.radialPDF(orbitalParams.n, orbitalParams.l, r, atomZ, 1, atomType)
+            }));
+        } else if (type === 'energyDensityGamma') {
+            // energyDensityGamma：与 energyDensity 同源，仅在 y 上做 gamma=0.1
+          const gammaCorrect = (y) => {
+            if (typeof y !== 'number' || !Number.isFinite(y)) return 0;
+            if (y === 0) return 0;
+            const s = y < 0 ? -1 : 1;
+            const v = Math.pow(Math.abs(y), 0.1);
+            return Number.isFinite(v) ? (s * v) : 0;
+          };
+            const baseKey = (slotConfig.orbital || '').replace(/[xyz]/g, '').replace(/_.*/, '');
+            const energies = window.SlaterBasis && window.SlaterBasis[atomType]
+              ? window.SlaterBasis[atomType].energies
+              : null;
+            const epsilon = (energies && energies[baseKey] !== undefined) ? energies[baseKey] : -0.5;
+            theoryData = centers.map(r => {
+              const y = epsilon * window.Hydrogen.radialPDF(orbitalParams.n, orbitalParams.l, r, atomZ, 1, atomType);
+              return { x: r, y: gammaCorrect(y) };
+            });
         } else if (type === 'energyCumulative') {
-          // 能量累计理论曲线：使用 calculateCumulativeOrbitalEnergy 返回的 E（即累积能量）
-          const res = window.Hydrogen.calculateCumulativeOrbitalEnergy(orbitalParams.n, orbitalParams.l, atomZ, atomType, centers);
-          theoryData = centers.map((r, i) => ({
-            x: r,
-            y: (res && res.E && res.E.length > i) ? res.E[i] : 0
-          }));
+            // 能量累计理论曲线：与采样侧严格同定义：E(R)=∫ ε·P(r)dr
+            const baseKey = (slotConfig.orbital || '').replace(/[xyz]/g, '').replace(/_.*/, '');
+            const energies = window.SlaterBasis && window.SlaterBasis[atomType]
+              ? window.SlaterBasis[atomType].energies
+              : null;
+            const epsilon = (energies && energies[baseKey] !== undefined) ? energies[baseKey] : -0.5;
+            const dr = (hist && hist.edges && hist.edges.length >= 2)
+              ? (hist.edges[1] - hist.edges[0])
+              : (centers.length >= 2 ? (centers[1] - centers[0]) : 0.01);
+            let cumSum = 0;
+            theoryData = centers.map(r => {
+              const density = epsilon * window.Hydrogen.radialPDF(orbitalParams.n, orbitalParams.l, r, atomZ, 1, atomType);
+              cumSum += density * dr;
+              return { x: r, y: cumSum };
+            });
+        } else if (type === 'energyCumulativeGamma') {
+            // energyCumulativeGamma：理论 E 与 energyCumulative 同源，仅在 y 上做 gamma=0.1
+          const gammaCorrect = (y) => {
+            if (typeof y !== 'number' || !Number.isFinite(y)) return 0;
+            if (y === 0) return 0;
+            const s = y < 0 ? -1 : 1;
+            const v = Math.pow(Math.abs(y), 0.1);
+            return Number.isFinite(v) ? (s * v) : 0;
+          };
+            const baseKey = (slotConfig.orbital || '').replace(/[xyz]/g, '').replace(/_.*/, '');
+            const energies = window.SlaterBasis && window.SlaterBasis[atomType]
+              ? window.SlaterBasis[atomType].energies
+              : null;
+            const epsilon = (energies && energies[baseKey] !== undefined) ? energies[baseKey] : -0.5;
+            const dr = (hist && hist.edges && hist.edges.length >= 2)
+              ? (hist.edges[1] - hist.edges[0])
+              : (centers.length >= 2 ? (centers[1] - centers[0]) : 0.01);
+            let cumSum = 0;
+            theoryData = centers.map(r => {
+              const density = epsilon * window.Hydrogen.radialPDF(orbitalParams.n, orbitalParams.l, r, atomZ, 1, atomType);
+              cumSum += density * dr;
+              return { x: r, y: gammaCorrect(cumSum) };
+            });
         }
         else if (type === 'localEnergy') {
           // compare-localEnergy：全部为理论派生量（无采样曲线）
@@ -1643,6 +2223,8 @@
 
     applyThinLineStyle(datasets);
     state.chart.data.datasets = datasets;
+    applyRollingAnimationPolicy(state.chart);
+    applyRollingYAxisLock(state.chart, datasets, `compare:${type}`, type);
     console.log('开始更新图表，轨道数量:', Object.keys(orbitalDataMap).length);
     try {
       state.chart.update('none');
@@ -1677,7 +2259,9 @@
     renderChartAngular,
     renderChartPhi,
     renderChartEnergyDensity,
+    renderChartEnergyDensityGamma,
     renderChartEnergyCumulative,
+    renderChartEnergyCumulativeGamma,
     renderChartEnergy, // 兼容
     renderChartPotential,
     renderChartDEdr,
